@@ -11,7 +11,10 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "import:admin": "tsx src/scripts/importAdminData.ts",
-    "seed:reference": "tsx src/scripts/seedReferenceData.ts"
+    "seed:reference": "tsx src/scripts/seedReferenceData.ts",
+    "import:presidential": "tsx src/scripts/importPresidentialResults.ts",
+    "import:stations": "tsx src/scripts/importPollingStations.ts",
+    "import:issues": "tsx src/scripts/importElectoralIssues.ts"
   },
   "keywords": ["election", "gis", "uganda", "broadcast"],
   "author": "",
