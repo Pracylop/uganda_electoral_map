@@ -1,0 +1,450 @@
+// Uganda Electoral Map - Database Schema
+// Prisma schema for broadcast-quality GIS electoral results display system
+// Version: 2.0 - Restructured for electoral complexity (MOD-001 to MOD-010)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USER MANAGEMENT
+// ============================================================================
+
+model User {
+  id            Int      @id @default(autoincrement())
+  username      String   @unique @db.VarChar(50)
+  passwordHash  String   @map("password_hash") @db.VarChar(255)
+  fullName      String   @map("full_name") @db.VarChar(100)
+  role          UserRole
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  resultsEntered    Result[]          @relation("ResultEnteredBy")
+  resultsVerified   Result[]          @relation("ResultVerifiedBy")
+  summariesEntered  ElectionSummary[] @relation("SummaryEnteredBy")
+  summariesVerified ElectionSummary[] @relation("SummaryVerifiedBy")
+  auditLogs         AuditLog[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  viewer
+  operator
+  editor
+  admin
+}
+
+// ============================================================================
+// POLITICAL PARTIES (MOD-001)
+// ============================================================================
+
+model PoliticalParty {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(100)
+  abbreviation String   @unique @db.VarChar(20)
+  color        String   @db.VarChar(7) // Hex color for choropleth maps
+  logoUrl      String?  @map("logo_url") @db.VarChar(255)
+  foundedYear  Int?     @map("founded_year")
+  description  String?  @db.Text
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  memberships PartyMembership[]
+  candidates  Candidate[]
+
+  @@map("political_parties")
+}
+
+// ============================================================================
+// PARTY MEMBERSHIP - Historical Tracking (MOD-002)
+// ============================================================================
+
+model PartyMembership {
+  id        Int       @id @default(autoincrement())
+  personId  Int       @map("person_id")
+  partyId   Int       @map("party_id")
+  startDate DateTime  @map("start_date") @db.Date
+  endDate   DateTime? @map("end_date") @db.Date // NULL = current member
+  position  String?   @db.VarChar(100)
+  notes     String?   @db.Text
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  person Person         @relation(fields: [personId], references: [id])
+  party  PoliticalParty @relation(fields: [partyId], references: [id])
+
+  @@index([personId])
+  @@index([partyId])
+  @@map("party_memberships")
+}
+
+// ============================================================================
+// ELECTION TYPES (MOD-003)
+// ============================================================================
+
+model ElectionType {
+  id             Int      @id @default(autoincrement())
+  name           String   @db.VarChar(100)
+  code           String   @unique @db.VarChar(20)
+  electoralLevel Int      @map("electoral_level") // Admin level where election occurs
+  description    String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // Relations
+  elections Election[]
+
+  @@map("election_types")
+}
+
+// ============================================================================
+// PERSONS - Identity separate from candidacy (MOD-004)
+// ============================================================================
+
+model Person {
+  id          Int       @id @default(autoincrement())
+  fullName    String    @map("full_name") @db.VarChar(100)
+  dateOfBirth DateTime? @map("date_of_birth") @db.Date
+  gender      String?   @db.VarChar(20)
+  biography   String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  candidacies      Candidate[]
+  partyMemberships PartyMembership[]
+
+  @@map("persons")
+}
+
+// ============================================================================
+// ADMINISTRATIVE UNITS
+// ============================================================================
+
+model AdministrativeUnit {
+  id               Int      @id @default(autoincrement())
+  name             String   @db.VarChar(100)
+  code             String?  @unique @db.VarChar(20)
+  level            Int // 0=National, 1=Sub-Region, 2=District, 3=Constituency, 4=Subcounty, 5=Parish
+  parentId         Int?     @map("parent_id")
+  geometry         String?  @db.Text // GeoJSON geometry
+  registeredVoters Int?     @map("registered_voters")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  // Hierarchical Relations
+  parent   AdministrativeUnit?  @relation("Hierarchy", fields: [parentId], references: [id])
+  children AdministrativeUnit[] @relation("Hierarchy")
+
+  // Electoral Relations
+  candidates       Candidate[]       @relation("CandidateElectoralArea")
+  results          Result[]
+  electionSummaries ElectionSummary[]
+  pollingStations  PollingStation[]
+
+  // Electoral Issue Location Relations
+  issuesInDistrict     ElectoralIssue[] @relation("IssueDistrict")
+  issuesInConstituency ElectoralIssue[] @relation("IssueConstituency")
+  issuesInSubcounty    ElectoralIssue[] @relation("IssueSubcounty")
+  issuesInParish       ElectoralIssue[] @relation("IssueParish")
+
+  @@index([level])
+  @@index([parentId])
+  @@map("administrative_units")
+}
+
+// ============================================================================
+// ELECTIONS (MOD-005 - Modified)
+// ============================================================================
+
+model Election {
+  id             Int      @id @default(autoincrement())
+  electionTypeId Int      @map("election_type_id")
+  name           String   @db.VarChar(100)
+  year           Int
+  electionDate   DateTime @map("election_date")
+  isActive       Boolean  @default(false) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // Relations
+  electionType    ElectionType             @relation(fields: [electionTypeId], references: [id])
+  candidates      Candidate[]
+  results         Result[]
+  summaries       ElectionSummary[]
+  issues          ElectoralIssue[]
+  pollingStations PollingStationElection[]
+
+  @@index([year])
+  @@index([electionTypeId])
+  @@map("elections")
+}
+
+// ============================================================================
+// CANDIDATES (MOD-005 - Restructured)
+// ============================================================================
+
+model Candidate {
+  id              Int      @id @default(autoincrement())
+  personId        Int      @map("person_id")
+  electionId      Int      @map("election_id")
+  partyId         Int?     @map("party_id") // Party at time of candidacy
+  electoralAreaId Int?     @map("electoral_area_id") // NULL for Presidential
+  ballotOrder     Int?     @map("ballot_order")
+  photoUrl        String?  @map("photo_url") @db.VarChar(255) // Per-candidacy photo
+  isIndependent   Boolean  @default(false) @map("is_independent")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  // Relations
+  person        Person              @relation(fields: [personId], references: [id])
+  election      Election            @relation(fields: [electionId], references: [id])
+  party         PoliticalParty?     @relation(fields: [partyId], references: [id])
+  electoralArea AdministrativeUnit? @relation("CandidateElectoralArea", fields: [electoralAreaId], references: [id])
+  results       Result[]
+  issuesInvolved ElectoralIssueCandidate[]
+
+  @@unique([electionId, personId])
+  @@index([electionId])
+  @@index([partyId])
+  @@map("candidates")
+}
+
+// ============================================================================
+// ELECTION SUMMARY - Aggregate stats per admin unit (MOD-006)
+// ============================================================================
+
+model ElectionSummary {
+  id               Int          @id @default(autoincrement())
+  electionId       Int          @map("election_id")
+  adminUnitId      Int          @map("admin_unit_id")
+  registeredVoters Int          @map("registered_voters")
+  totalVotes       Int          @map("total_votes")
+  validVotes       Int          @map("valid_votes")
+  invalidVotes     Int          @map("invalid_votes")
+  turnoutPercent   Decimal?     @map("turnout_percent") @db.Decimal(5, 2)
+  invalidPercent   Decimal?     @map("invalid_percent") @db.Decimal(5, 2)
+  status           ResultStatus @default(draft)
+  enteredBy        Int          @map("entered_by")
+  verifiedBy       Int?         @map("verified_by")
+  verifiedAt       DateTime?    @map("verified_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  election       Election           @relation(fields: [electionId], references: [id])
+  adminUnit      AdministrativeUnit @relation(fields: [adminUnitId], references: [id])
+  enteredByUser  User               @relation("SummaryEnteredBy", fields: [enteredBy], references: [id])
+  verifiedByUser User?              @relation("SummaryVerifiedBy", fields: [verifiedBy], references: [id])
+
+  @@unique([electionId, adminUnitId])
+  @@index([status])
+  @@map("election_summaries")
+}
+
+// ============================================================================
+// RESULTS - Per-candidate votes (MOD-007 - Simplified)
+// ============================================================================
+
+model Result {
+  id               Int          @id @default(autoincrement())
+  electionId       Int          @map("election_id")
+  candidateId      Int          @map("candidate_id")
+  adminUnitId      Int          @map("admin_unit_id")
+  votes            Int
+  votePercent      Decimal?     @map("vote_percent") @db.Decimal(5, 2)
+  status           ResultStatus @default(draft)
+  enteredBy        Int          @map("entered_by")
+  verifiedBy       Int?         @map("verified_by")
+  verifiedAt       DateTime?    @map("verified_at")
+  rejectionComment String?      @map("rejection_comment") @db.Text
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  election       Election           @relation(fields: [electionId], references: [id])
+  candidate      Candidate          @relation(fields: [candidateId], references: [id])
+  adminUnit      AdministrativeUnit @relation(fields: [adminUnitId], references: [id])
+  enteredByUser  User               @relation("ResultEnteredBy", fields: [enteredBy], references: [id])
+  verifiedByUser User?              @relation("ResultVerifiedBy", fields: [verifiedBy], references: [id])
+
+  @@unique([electionId, candidateId, adminUnitId])
+  @@index([status])
+  @@index([adminUnitId])
+  @@map("results")
+}
+
+enum ResultStatus {
+  draft
+  pending
+  rejected
+  approved
+  disputed
+  retracted
+}
+
+// ============================================================================
+// POLLING STATIONS (MOD-007 - Master List)
+// ============================================================================
+
+model PollingStation {
+  id        Int      @id @default(autoincrement())
+  code      String   @db.VarChar(50)
+  name      String   @db.VarChar(200)
+  parishId  Int      @map("parish_id")
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+  address   String?  @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  parish       AdministrativeUnit       @relation(fields: [parishId], references: [id])
+  electionData PollingStationElection[]
+
+  @@unique([parishId, code])
+  @@index([parishId])
+  @@map("polling_stations")
+}
+
+// ============================================================================
+// POLLING STATION ELECTION - Per-election voter data (MOD-007)
+// ============================================================================
+
+model PollingStationElection {
+  id               Int      @id @default(autoincrement())
+  pollingStationId Int      @map("polling_station_id")
+  electionId       Int      @map("election_id")
+  totalVoters      Int      @map("total_voters")
+  femaleVoters     Int?     @map("female_voters")
+  maleVoters       Int?     @map("male_voters")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  // Relations
+  pollingStation PollingStation @relation(fields: [pollingStationId], references: [id])
+  election       Election       @relation(fields: [electionId], references: [id])
+
+  @@unique([pollingStationId, electionId])
+  @@index([electionId])
+  @@map("polling_station_elections")
+}
+
+// ============================================================================
+// ISSUE CATEGORIES (MOD-008)
+// ============================================================================
+
+model IssueCategory {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(100)
+  code        String   @unique @db.VarChar(50)
+  description String?  @db.Text
+  severity    Int      @default(3) // Default severity 1-5
+  color       String?  @db.VarChar(7) // Hex color for map
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  issues ElectoralIssue[]
+
+  @@map("issue_categories")
+}
+
+// ============================================================================
+// ELECTORAL ISSUES (MOD-009)
+// ============================================================================
+
+model ElectoralIssue {
+  id              Int         @id @default(autoincrement())
+  electionId      Int?        @map("election_id")
+  issueCategoryId Int         @map("issue_category_id")
+  date            DateTime    @db.Date
+  time            DateTime?   @db.Time(0)
+  districtId      Int?        @map("district_id")
+  constituencyId  Int?        @map("constituency_id")
+  subcountyId     Int?        @map("subcounty_id")
+  parishId        Int?        @map("parish_id")
+  village         String?     @db.VarChar(100)
+  location        String?     @db.VarChar(255)
+  latitude        Decimal?    @db.Decimal(10, 7)
+  longitude       Decimal?    @db.Decimal(10, 7)
+  severity        Int?        // Override severity (1-5)
+  summary         String      @db.VarChar(500)
+  fullText        String?     @map("full_text") @db.Text
+  source          String?     @db.VarChar(200) // "Daily Monitor", etc.
+  photoUrl        String?     @map("photo_url") @db.VarChar(255)
+  urls            String?     @db.Text // JSON array of URLs
+  status          IssueStatus @default(reported)
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  election           Election?           @relation(fields: [electionId], references: [id])
+  issueCategory      IssueCategory       @relation(fields: [issueCategoryId], references: [id])
+  district           AdministrativeUnit? @relation("IssueDistrict", fields: [districtId], references: [id])
+  constituency       AdministrativeUnit? @relation("IssueConstituency", fields: [constituencyId], references: [id])
+  subcounty          AdministrativeUnit? @relation("IssueSubcounty", fields: [subcountyId], references: [id])
+  parish             AdministrativeUnit? @relation("IssueParish", fields: [parishId], references: [id])
+  candidatesInvolved ElectoralIssueCandidate[]
+
+  @@index([date])
+  @@index([issueCategoryId])
+  @@index([electionId])
+  @@map("electoral_issues")
+}
+
+enum IssueStatus {
+  reported
+  investigating
+  verified
+  resolved
+  dismissed
+}
+
+// ============================================================================
+// ELECTORAL ISSUE CANDIDATES - Many-to-many junction (MOD-010)
+// ============================================================================
+
+model ElectoralIssueCandidate {
+  id          Int      @id @default(autoincrement())
+  issueId     Int      @map("issue_id")
+  candidateId Int      @map("candidate_id")
+  role        String?  @db.VarChar(50) // "victim", "accused", "mentioned"
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  issue     ElectoralIssue @relation(fields: [issueId], references: [id])
+  candidate Candidate      @relation(fields: [candidateId], references: [id])
+
+  @@unique([issueId, candidateId])
+  @@map("electoral_issue_candidates")
+}
+
+// ============================================================================
+// AUDIT LOG (Immutable)
+// ============================================================================
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  timestamp  DateTime @default(now())
+  userId     Int      @map("user_id")
+  userRole   UserRole @map("user_role")
+  actionType String   @map("action_type") @db.VarChar(50)
+  entityType String   @map("entity_type") @db.VarChar(50)
+  entityId   Int?     @map("entity_id")
+  oldValue   Json?    @map("old_value")
+  newValue   Json?    @map("new_value")
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  comment    String?  @db.Text
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([actionType])
+  @@index([timestamp])
+  @@map("audit_log")
+}
