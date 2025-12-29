@@ -589,22 +589,6 @@ export function MapDashboard() {
                 </button>
               </div>
             )}
-            {/* Sync Toggle (only in comparison mode) */}
-            {isComparisonMode && (
-              <div>
-                <label className="block text-sm font-medium mb-2">Sync View</label>
-                <button
-                  onClick={() => setIsSyncEnabled(!isSyncEnabled)}
-                  className={`px-4 py-2 rounded-md transition-colors ${
-                    isSyncEnabled
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
-                >
-                  {isSyncEnabled ? 'Sync On' : 'Sync Off'}
-                </button>
-              </div>
-            )}
             {/* Election Selector */}
             <div className="w-64">
               <label className="block text-sm font-medium mb-2">
@@ -637,8 +621,25 @@ export function MapDashboard() {
       {/* Content Container */}
       <div className="flex-1 relative">
         {viewMode === 'map' ? (
-          <div className={`flex h-full ${isComparisonMode ? 'gap-1' : ''}`}>
-            {/* Left Map Panel */}
+          <>
+            {/* Sync Toggle - Floating Center Button */}
+            {isComparisonMode && (
+              <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-20">
+                <button
+                  onClick={() => setIsSyncEnabled(!isSyncEnabled)}
+                  className={`px-4 py-2 rounded-lg shadow-lg font-medium transition-colors ${
+                    isSyncEnabled
+                      ? 'bg-purple-600 text-white hover:bg-purple-700'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  {isSyncEnabled ? '🔗 Sync On' : '🔓 Sync Off'}
+                </button>
+              </div>
+            )}
+
+            <div className={`flex h-full ${isComparisonMode ? 'gap-1' : ''}`}>
+              {/* Left Map Panel */}
             <div className={`relative ${isComparisonMode ? 'w-1/2' : 'w-full'} h-full`}>
               <Map onLoad={handleMapLoad} className="absolute inset-0" />
 
@@ -766,7 +767,8 @@ export function MapDashboard() {
                 )}
               </div>
             )}
-          </div>
+            </div>
+          </>
         ) : (
           <>
             {selectedElection ? (
