@@ -92,7 +92,10 @@ export function MapDashboard() {
 
       if (!response.ok) throw new Error('Failed to load map data');
 
-      const geojson = await response.json();
+      const data = await response.json();
+      // Handle both direct GeoJSON and wrapped response formats
+      const geojson = data.type === 'FeatureCollection' ? data : data;
+      console.log('GeoJSON features count:', geojson.features?.length || 0);
 
       // Remove existing results layer if present
       try {
@@ -199,17 +202,25 @@ export function MapDashboard() {
         map.getCanvas().style.cursor = '';
       });
 
-      // Fit map to results bounds
-      if (geojson.features.length > 0) {
+      // Fit map to results bounds - use bbox from API if available
+      if (data.bbox && data.bbox.length === 4) {
+        map.fitBounds(
+          [[data.bbox[0], data.bbox[1]], [data.bbox[2], data.bbox[3]]],
+          { padding: 50 }
+        );
+      } else if (geojson.features && geojson.features.length > 0) {
+        // Fallback: calculate bounds from features
         const bounds = new maplibregl.LngLatBounds();
         geojson.features.forEach((feature: any) => {
-          if (feature.geometry.type === 'Polygon') {
+          if (feature.geometry?.type === 'Polygon' && feature.geometry.coordinates?.[0]) {
             feature.geometry.coordinates[0].forEach((coord: [number, number]) => {
               bounds.extend(coord);
             });
           }
         });
-        map.fitBounds(bounds, { padding: 50 });
+        if (!bounds.isEmpty()) {
+          map.fitBounds(bounds, { padding: 50 });
+        }
       }
     } catch (err) {
       setError(
