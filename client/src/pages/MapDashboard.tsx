@@ -14,6 +14,27 @@ interface Election {
   electionType: string;
 }
 
+interface BreadcrumbItem {
+  id: number;
+  name: string;
+  level: number;
+}
+
+interface DrillDownState {
+  currentLevel: number;
+  currentParentId: number | null;
+  breadcrumb: BreadcrumbItem[];
+}
+
+// Admin level names for display
+const LEVEL_NAMES: Record<number, string> = {
+  1: 'Subregion',
+  2: 'District',
+  3: 'Constituency',
+  4: 'Subcounty',
+  5: 'Parish'
+};
+
 export function MapDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [elections, setElections] = useState<Election[]>([]);
@@ -23,13 +44,20 @@ export function MapDashboard() {
   const [viewMode, setViewMode] = useState<'map' | 'dashboard'>('map');
   const mapRef = useRef<maplibregl.Map | null>(null);
 
+  // Drill-down state
+  const [drillDown, setDrillDown] = useState<DrillDownState>({
+    currentLevel: 2, // Start at district level
+    currentParentId: null,
+    breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
+  });
+
   // WebSocket connection for real-time updates
   useWebSocket((message) => {
     if (message.type === 'RESULT_APPROVED' && selectedElection) {
       const payload = message.payload as { electionId: number };
       // Refresh map if approved result is for current election
       if (payload.electionId === selectedElection) {
-        loadElectionResults(selectedElection);
+        loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId);
       }
     }
   });
@@ -54,9 +82,9 @@ export function MapDashboard() {
 
   useEffect(() => {
     if (selectedElection && mapRef.current) {
-      loadElectionResults(selectedElection);
+      loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId);
     }
-  }, [selectedElection]);
+  }, [selectedElection, drillDown.currentLevel, drillDown.currentParentId]);
 
   const loadElections = async () => {
     try {
@@ -73,22 +101,28 @@ export function MapDashboard() {
     }
   };
 
-  const loadElectionResults = async (electionId: number) => {
+  const loadElectionResults = async (
+    electionId: number,
+    level: number = 2,
+    parentId: number | null = null
+  ) => {
     const map = mapRef.current;
     if (!map) return;
 
-    console.log('Loading election results for election:', electionId);
+    console.log('Loading election results for election:', electionId, 'level:', level, 'parentId:', parentId);
 
     try {
       // Use aggregated endpoint which has explode logic for MultiPolygons
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/map/aggregated/${electionId}?level=2`,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-          }
+      let url = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/map/aggregated/${electionId}?level=${level}`;
+      if (parentId !== null) {
+        url += `&parentId=${parentId}`;
+      }
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
         }
-      );
+      });
 
       if (!response.ok) throw new Error('Failed to load map data');
 
@@ -140,7 +174,7 @@ export function MapDashboard() {
         }
       });
 
-      // Add click handler for popups
+      // Add click handler for drill-down and popups
       map.on('click', 'results-fill', (e) => {
         if (!e.features || e.features.length === 0) return;
 
@@ -149,13 +183,32 @@ export function MapDashboard() {
 
         if (!props) return;
 
+        const unitId = props.unitId;
+        const unitName = props.unitName;
+        const featureLevel = props.level || level;
+
+        // If not at parish level (5), drill down to children
+        if (featureLevel < 5) {
+          const nextLevel = featureLevel + 1;
+          setDrillDown(prev => ({
+            currentLevel: nextLevel,
+            currentParentId: unitId,
+            breadcrumb: [
+              ...prev.breadcrumb,
+              { id: unitId, name: unitName, level: featureLevel }
+            ]
+          }));
+          return;
+        }
+
+        // At parish level, show popup with results
         const winner = props.winner ? JSON.parse(props.winner) : null;
         const candidates = props.candidates ? JSON.parse(props.candidates) : [];
 
         let popupHTML = `
           <div class="p-3">
             <h3 class="font-bold text-lg mb-2">${props.unitName}</h3>
-            <p class="text-sm text-gray-600 mb-2">Total Votes: ${props.totalVotes.toLocaleString()}</p>
+            <p class="text-sm text-gray-600 mb-2">Total Votes: ${(props.totalVotes || 0).toLocaleString()}</p>
         `;
 
         if (props.turnout) {
@@ -166,7 +219,7 @@ export function MapDashboard() {
           popupHTML += `
             <div class="bg-green-100 p-2 rounded mb-2">
               <p class="font-semibold">Winner: ${winner.name}</p>
-              <p class="text-sm">${winner.party} - ${winner.votes.toLocaleString()} votes</p>
+              <p class="text-sm">${winner.party} - ${(winner.votes || 0).toLocaleString()} votes</p>
             </div>
           `;
         }
@@ -174,11 +227,11 @@ export function MapDashboard() {
         if (candidates.length > 0) {
           popupHTML += `<div class="mt-2"><p class="text-sm font-semibold mb-1">All Candidates:</p>`;
           candidates
-            .sort((a: any, b: any) => b.votes - a.votes)
+            .sort((a: any, b: any) => (b.votes || 0) - (a.votes || 0))
             .forEach((c: any) => {
               popupHTML += `
                 <p class="text-sm">
-                  ${c.name} (${c.party}): ${c.votes.toLocaleString()}
+                  ${c.name} (${c.party}): ${(c.votes || 0).toLocaleString()}
                 </p>
               `;
             });
@@ -232,12 +285,41 @@ export function MapDashboard() {
   const handleElectionChange = (electionId: number) => {
     setSelectedElection(electionId);
     setSearchParams({ election: electionId.toString() });
+    // Reset drill-down state when election changes
+    setDrillDown({
+      currentLevel: 2,
+      currentParentId: null,
+      breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
+    });
+  };
+
+  // Navigate breadcrumb - go back to a specific level
+  const handleBreadcrumbClick = (item: BreadcrumbItem) => {
+    if (item.level === 0) {
+      // Go back to national view (district level)
+      setDrillDown({
+        currentLevel: 2,
+        currentParentId: null,
+        breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
+      });
+    } else {
+      // Go back to a specific level
+      setDrillDown(prev => {
+        const itemIndex = prev.breadcrumb.findIndex(b => b.id === item.id);
+        const newBreadcrumb = prev.breadcrumb.slice(0, itemIndex + 1);
+        return {
+          currentLevel: item.level + 1,
+          currentParentId: item.id,
+          breadcrumb: newBreadcrumb
+        };
+      });
+    }
   };
 
   const handleMapLoad = (map: maplibregl.Map) => {
     mapRef.current = map;
     if (selectedElection) {
-      loadElectionResults(selectedElection);
+      loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId);
     }
   };
 
@@ -327,15 +409,48 @@ export function MapDashboard() {
           <>
             <Map onLoad={handleMapLoad} className="absolute inset-0" />
 
+            {/* Breadcrumb Navigation */}
+            {selectedElection && (
+              <div className="absolute top-4 left-4 bg-gray-800/95 backdrop-blur-sm px-4 py-2 rounded-lg shadow-lg z-10 max-w-[90%]">
+                <div className="flex items-center gap-2 text-sm flex-wrap">
+                  {drillDown.breadcrumb.map((item, index) => (
+                    <span key={item.id} className="flex items-center">
+                      {index > 0 && <span className="mx-1 text-gray-500">›</span>}
+                      <button
+                        onClick={() => handleBreadcrumbClick(item)}
+                        className={`hover:text-blue-400 transition-colors ${
+                          index === drillDown.breadcrumb.length - 1
+                            ? 'text-white font-medium'
+                            : 'text-gray-400'
+                        }`}
+                      >
+                        {item.name}
+                      </button>
+                    </span>
+                  ))}
+                  {drillDown.currentLevel <= 5 && (
+                    <span className="flex items-center">
+                      <span className="mx-1 text-gray-500">›</span>
+                      <span className="text-blue-400 font-medium">
+                        {LEVEL_NAMES[drillDown.currentLevel]}s
+                      </span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Legend */}
             {selectedElection && (
               <div className="absolute bottom-6 left-6 bg-gray-800 p-4 rounded-lg shadow-lg max-w-xs">
-                <h3 className="font-bold mb-2">Map Legend</h3>
+                <h3 className="font-bold mb-2">{LEVEL_NAMES[drillDown.currentLevel]} Map</h3>
                 <p className="text-sm text-gray-400 mb-2">
                   Regions are colored by winning party
                 </p>
                 <p className="text-xs text-gray-500">
-                  Click on any region to see detailed results
+                  {drillDown.currentLevel < 5
+                    ? 'Click on any region to drill down'
+                    : 'Click on any parish to see detailed results'}
                 </p>
               </div>
             )}
