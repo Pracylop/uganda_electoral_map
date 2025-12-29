@@ -44,12 +44,23 @@ export function MapDashboard() {
   const [viewMode, setViewMode] = useState<'map' | 'dashboard'>('map');
   const mapRef = useRef<maplibregl.Map | null>(null);
 
-  // Drill-down state
+  // Drill-down state (left map / single map)
   const [drillDown, setDrillDown] = useState<DrillDownState>({
     currentLevel: 2, // Start at district level
     currentParentId: null,
     breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
   });
+
+  // Comparison mode state
+  const [isComparisonMode, setIsComparisonMode] = useState(false);
+  const [rightElection, setRightElection] = useState<number | null>(null);
+  const [rightDrillDown, setRightDrillDown] = useState<DrillDownState>({
+    currentLevel: 2,
+    currentParentId: null,
+    breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
+  });
+  const [isSyncEnabled, setIsSyncEnabled] = useState(true);
+  const rightMapRef = useRef<maplibregl.Map | null>(null);
 
   // WebSocket connection for real-time updates
   useWebSocket((message) => {
@@ -323,6 +334,156 @@ export function MapDashboard() {
     }
   };
 
+  // Right map handlers for comparison mode
+  const handleRightMapLoad = (map: maplibregl.Map) => {
+    rightMapRef.current = map;
+    if (rightElection) {
+      loadElectionResultsForMap(map, rightElection, rightDrillDown.currentLevel, rightDrillDown.currentParentId, true);
+    }
+  };
+
+  const loadElectionResultsForMap = async (
+    map: maplibregl.Map,
+    electionId: number,
+    level: number = 2,
+    parentId: number | null = null,
+    isRightMap: boolean = false
+  ) => {
+    if (!map) return;
+
+    try {
+      let url = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/map/aggregated/${electionId}?level=${level}`;
+      if (parentId !== null) {
+        url += `&parentId=${parentId}`;
+      }
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to load map data');
+
+      const data = await response.json();
+      const geojson = data.type === 'FeatureCollection' ? data : data;
+
+      // Remove existing layers
+      try {
+        if (map.getLayer('results-fill')) map.removeLayer('results-fill');
+        if (map.getLayer('results-outline')) map.removeLayer('results-outline');
+        if (map.getSource('results')) map.removeSource('results');
+      } catch (e) {
+        console.warn('Error removing existing layers:', e);
+      }
+
+      map.addSource('results', { type: 'geojson', data: geojson });
+
+      map.addLayer({
+        id: 'results-fill',
+        type: 'fill',
+        source: 'results',
+        paint: {
+          'fill-color': ['coalesce', ['get', 'winnerColor'], '#cccccc'],
+          'fill-opacity': 0.7
+        }
+      });
+
+      map.addLayer({
+        id: 'results-outline',
+        type: 'line',
+        source: 'results',
+        paint: {
+          'line-color': '#333333',
+          'line-width': 0.3
+        }
+      });
+
+      // Add click handler for drill-down (right map)
+      if (isRightMap) {
+        map.on('click', 'results-fill', (e) => {
+          if (!e.features || e.features.length === 0) return;
+          const feature = e.features[0];
+          const props = feature.properties;
+          if (!props) return;
+
+          const unitId = props.unitId;
+          const unitName = props.unitName;
+          const featureLevel = props.level || level;
+
+          // If not at parish level (5), drill down to children
+          if (featureLevel < 5) {
+            const nextLevel = featureLevel + 1;
+            setRightDrillDown(prev => ({
+              currentLevel: nextLevel,
+              currentParentId: unitId,
+              breadcrumb: [
+                ...prev.breadcrumb,
+                { id: unitId, name: unitName, level: featureLevel }
+              ]
+            }));
+          }
+        });
+
+        // Change cursor on hover
+        map.on('mouseenter', 'results-fill', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'results-fill', () => {
+          map.getCanvas().style.cursor = '';
+        });
+      }
+
+      // Fit bounds
+      if (data.bbox && data.bbox.length === 4) {
+        map.fitBounds(
+          [[data.bbox[0], data.bbox[1]], [data.bbox[2], data.bbox[3]]],
+          { padding: 50 }
+        );
+      }
+    } catch (err) {
+      console.error('Error loading map data:', err);
+    }
+  };
+
+  // Handle right election change
+  const handleRightElectionChange = (electionId: number) => {
+    setRightElection(electionId);
+    setRightDrillDown({
+      currentLevel: 2,
+      currentParentId: null,
+      breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
+    });
+  };
+
+  // Handle right breadcrumb click
+  const handleRightBreadcrumbClick = (item: BreadcrumbItem) => {
+    if (item.level === 0) {
+      setRightDrillDown({
+        currentLevel: 2,
+        currentParentId: null,
+        breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
+      });
+    } else {
+      setRightDrillDown(prev => {
+        const itemIndex = prev.breadcrumb.findIndex(b => b.id === item.id);
+        const newBreadcrumb = prev.breadcrumb.slice(0, itemIndex + 1);
+        return {
+          currentLevel: item.level + 1,
+          currentParentId: item.id,
+          breadcrumb: newBreadcrumb
+        };
+      });
+    }
+  };
+
+  // Effect to load right map results when election or drill-down changes
+  useEffect(() => {
+    if (rightElection && rightMapRef.current && isComparisonMode) {
+      loadElectionResultsForMap(rightMapRef.current, rightElection, rightDrillDown.currentLevel, rightDrillDown.currentParentId, true);
+    }
+  }, [rightElection, rightDrillDown.currentLevel, rightDrillDown.currentParentId, isComparisonMode]);
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -374,6 +535,31 @@ export function MapDashboard() {
                 </button>
               </div>
             </div>
+            {/* Comparison Mode Toggle */}
+            {viewMode === 'map' && (
+              <div>
+                <label className="block text-sm font-medium mb-2">Compare</label>
+                <button
+                  onClick={() => {
+                    setIsComparisonMode(!isComparisonMode);
+                    if (!isComparisonMode && selectedElection) {
+                      // When entering comparison mode, set right election to something different
+                      const otherElection = elections.find(e => e.id !== selectedElection);
+                      if (otherElection) {
+                        setRightElection(otherElection.id);
+                      }
+                    }
+                  }}
+                  className={`px-4 py-2 rounded-md transition-colors ${
+                    isComparisonMode
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  {isComparisonMode ? 'Exit Compare' : 'Compare Elections'}
+                </button>
+              </div>
+            )}
             {/* Election Selector */}
             <div className="w-64">
               <label className="block text-sm font-medium mb-2">
@@ -406,55 +592,120 @@ export function MapDashboard() {
       {/* Content Container */}
       <div className="flex-1 relative">
         {viewMode === 'map' ? (
-          <>
-            <Map onLoad={handleMapLoad} className="absolute inset-0" />
+          <div className={`flex h-full ${isComparisonMode ? 'gap-1' : ''}`}>
+            {/* Left Map Panel */}
+            <div className={`relative ${isComparisonMode ? 'w-1/2' : 'w-full'} h-full`}>
+              <Map onLoad={handleMapLoad} className="absolute inset-0" />
 
-            {/* Breadcrumb Navigation */}
-            {selectedElection && (
-              <div className="absolute top-4 left-4 bg-gray-800/95 backdrop-blur-sm px-4 py-2 rounded-lg shadow-lg z-10 max-w-[90%]">
-                <div className="flex items-center gap-2 text-sm flex-wrap">
-                  {drillDown.breadcrumb.map((item, index) => (
-                    <span key={item.id} className="flex items-center">
-                      {index > 0 && <span className="mx-1 text-gray-500">›</span>}
-                      <button
-                        onClick={() => handleBreadcrumbClick(item)}
-                        className={`hover:text-blue-400 transition-colors ${
-                          index === drillDown.breadcrumb.length - 1
-                            ? 'text-white font-medium'
-                            : 'text-gray-400'
-                        }`}
-                      >
-                        {item.name}
-                      </button>
-                    </span>
-                  ))}
-                  {drillDown.currentLevel <= 5 && (
-                    <span className="flex items-center">
-                      <span className="mx-1 text-gray-500">›</span>
-                      <span className="text-blue-400 font-medium">
-                        {LEVEL_NAMES[drillDown.currentLevel]}s
-                      </span>
-                    </span>
-                  )}
+              {/* Election label for comparison mode */}
+              {isComparisonMode && selectedElection && (
+                <div className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded-lg shadow-lg z-10">
+                  <span className="text-sm font-medium">
+                    {elections.find(e => e.id === selectedElection)?.name || 'Election'}
+                  </span>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Legend */}
-            {selectedElection && (
-              <div className="absolute bottom-6 left-6 bg-gray-800 p-4 rounded-lg shadow-lg max-w-xs">
-                <h3 className="font-bold mb-2">{LEVEL_NAMES[drillDown.currentLevel]} Map</h3>
-                <p className="text-sm text-gray-400 mb-2">
-                  Regions are colored by winning party
-                </p>
-                <p className="text-xs text-gray-500">
-                  {drillDown.currentLevel < 5
-                    ? 'Click on any region to drill down'
-                    : 'Click on any parish to see detailed results'}
-                </p>
+              {/* Breadcrumb Navigation */}
+              {selectedElection && (
+                <div className="absolute top-4 left-4 bg-gray-800/95 backdrop-blur-sm px-4 py-2 rounded-lg shadow-lg z-10 max-w-[80%]">
+                  <div className="flex items-center gap-2 text-sm flex-wrap">
+                    {drillDown.breadcrumb.map((item, index) => (
+                      <span key={item.id} className="flex items-center">
+                        {index > 0 && <span className="mx-1 text-gray-500">›</span>}
+                        <button
+                          onClick={() => handleBreadcrumbClick(item)}
+                          className={`hover:text-blue-400 transition-colors ${
+                            index === drillDown.breadcrumb.length - 1
+                              ? 'text-white font-medium'
+                              : 'text-gray-400'
+                          }`}
+                        >
+                          {item.name}
+                        </button>
+                      </span>
+                    ))}
+                    {drillDown.currentLevel <= 5 && (
+                      <span className="flex items-center">
+                        <span className="mx-1 text-gray-500">›</span>
+                        <span className="text-blue-400 font-medium">
+                          {LEVEL_NAMES[drillDown.currentLevel]}s
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Legend */}
+              {selectedElection && !isComparisonMode && (
+                <div className="absolute bottom-6 left-6 bg-gray-800 p-4 rounded-lg shadow-lg max-w-xs">
+                  <h3 className="font-bold mb-2">{LEVEL_NAMES[drillDown.currentLevel]} Map</h3>
+                  <p className="text-sm text-gray-400 mb-2">
+                    Regions are colored by winning party
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {drillDown.currentLevel < 5
+                      ? 'Click on any region to drill down'
+                      : 'Click on any parish to see detailed results'}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Right Map Panel (Comparison Mode) */}
+            {isComparisonMode && (
+              <div className="relative w-1/2 h-full border-l border-gray-600">
+                <Map onLoad={handleRightMapLoad} className="absolute inset-0" />
+
+                {/* Right Election Selector */}
+                <div className="absolute top-4 right-4 bg-green-600 px-3 py-1 rounded-lg shadow-lg z-10">
+                  <select
+                    value={rightElection || ''}
+                    onChange={(e) => handleRightElectionChange(parseInt(e.target.value))}
+                    className="bg-transparent text-white text-sm font-medium focus:outline-none cursor-pointer"
+                  >
+                    {elections.map((election) => (
+                      <option key={election.id} value={election.id} className="text-gray-900">
+                        {election.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Right Breadcrumb Navigation */}
+                {rightElection && (
+                  <div className="absolute top-4 left-4 bg-gray-800/95 backdrop-blur-sm px-4 py-2 rounded-lg shadow-lg z-10 max-w-[70%]">
+                    <div className="flex items-center gap-2 text-sm flex-wrap">
+                      {rightDrillDown.breadcrumb.map((item, index) => (
+                        <span key={item.id} className="flex items-center">
+                          {index > 0 && <span className="mx-1 text-gray-500">›</span>}
+                          <button
+                            onClick={() => handleRightBreadcrumbClick(item)}
+                            className={`hover:text-blue-400 transition-colors ${
+                              index === rightDrillDown.breadcrumb.length - 1
+                                ? 'text-white font-medium'
+                                : 'text-gray-400'
+                            }`}
+                          >
+                            {item.name}
+                          </button>
+                        </span>
+                      ))}
+                      {rightDrillDown.currentLevel <= 5 && (
+                        <span className="flex items-center">
+                          <span className="mx-1 text-gray-500">›</span>
+                          <span className="text-green-400 font-medium">
+                            {LEVEL_NAMES[rightDrillDown.currentLevel]}s
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
-          </>
+          </div>
         ) : (
           <>
             {selectedElection ? (
