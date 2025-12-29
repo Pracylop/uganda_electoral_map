@@ -43,13 +43,23 @@ const Map = ({ onLoad, className }: MapProps) => {
     // Add navigation controls (zoom buttons)
     map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
 
-    // Call onLoad callback when map is loaded
+    // Call onLoad callback when map style is fully loaded
     if (onLoad && map.current) {
-      map.current.on('load', () => {
-        if (map.current) {
-          onLoad(map.current);
+      const mapInstance = map.current;
+
+      // Wait for both load and style to be ready
+      const checkAndCallback = () => {
+        if (mapInstance && mapInstance.isStyleLoaded()) {
+          onLoad(mapInstance);
+        } else {
+          // If style not ready yet, wait a bit more
+          mapInstance.once('styledata', () => {
+            onLoad(mapInstance);
+          });
         }
-      });
+      };
+
+      mapInstance.on('load', checkAndCallback);
     }
 
     // Cleanup on unmount

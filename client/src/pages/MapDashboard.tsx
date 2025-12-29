@@ -74,11 +74,15 @@ export function MapDashboard() {
   };
 
   const loadElectionResults = async (electionId: number) => {
-    if (!mapRef.current) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    console.log('Loading election results for election:', electionId);
 
     try {
+      // Use aggregated endpoint which has explode logic for MultiPolygons
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/map/results/${electionId}`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/map/aggregated/${electionId}?level=2`,
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem('auth_token')}`
@@ -91,51 +95,50 @@ export function MapDashboard() {
       const geojson = await response.json();
 
       // Remove existing results layer if present
-      if (mapRef.current.getLayer('results-fill')) {
-        mapRef.current.removeLayer('results-fill');
-      }
-      if (mapRef.current.getLayer('results-outline')) {
-        mapRef.current.removeLayer('results-outline');
-      }
-      if (mapRef.current.getSource('results')) {
-        mapRef.current.removeSource('results');
+      try {
+        if (map.getLayer('results-fill')) {
+          map.removeLayer('results-fill');
+        }
+        if (map.getLayer('results-outline')) {
+          map.removeLayer('results-outline');
+        }
+        if (map.getSource('results')) {
+          map.removeSource('results');
+        }
+      } catch (e) {
+        console.warn('Error removing existing layers:', e);
       }
 
       // Add GeoJSON source
-      mapRef.current.addSource('results', {
+      map.addSource('results', {
         type: 'geojson',
         data: geojson
       });
 
       // Add fill layer colored by winning party
-      mapRef.current.addLayer({
+      map.addLayer({
         id: 'results-fill',
         type: 'fill',
         source: 'results',
         paint: {
-          'fill-color': [
-            'case',
-            ['has', 'winner'],
-            ['get', 'partyColor', ['get', 'winner']],
-            '#cccccc'
-          ],
-          'fill-opacity': 0.6
+          'fill-color': ['coalesce', ['get', 'winnerColor'], '#cccccc'],
+          'fill-opacity': 0.7
         }
       });
 
-      // Add outline layer
-      mapRef.current.addLayer({
+      // Add outline layer - thin lines since there are many polygons
+      map.addLayer({
         id: 'results-outline',
         type: 'line',
         source: 'results',
         paint: {
-          'line-color': '#000000',
-          'line-width': 1
+          'line-color': '#333333',
+          'line-width': 0.3
         }
       });
 
       // Add click handler for popups
-      mapRef.current.on('click', 'results-fill', (e) => {
+      map.on('click', 'results-fill', (e) => {
         if (!e.features || e.features.length === 0) return;
 
         const feature = e.features[0];
@@ -184,20 +187,16 @@ export function MapDashboard() {
         new maplibregl.Popup()
           .setLngLat(e.lngLat)
           .setHTML(popupHTML)
-          .addTo(mapRef.current!);
+          .addTo(map);
       });
 
       // Change cursor on hover
-      mapRef.current.on('mouseenter', 'results-fill', () => {
-        if (mapRef.current) {
-          mapRef.current.getCanvas().style.cursor = 'pointer';
-        }
+      map.on('mouseenter', 'results-fill', () => {
+        map.getCanvas().style.cursor = 'pointer';
       });
 
-      mapRef.current.on('mouseleave', 'results-fill', () => {
-        if (mapRef.current) {
-          mapRef.current.getCanvas().style.cursor = '';
-        }
+      map.on('mouseleave', 'results-fill', () => {
+        map.getCanvas().style.cursor = '';
       });
 
       // Fit map to results bounds
@@ -210,7 +209,7 @@ export function MapDashboard() {
             });
           }
         });
-        mapRef.current.fitBounds(bounds, { padding: 50 });
+        map.fitBounds(bounds, { padding: 50 });
       }
     } catch (err) {
       setError(
