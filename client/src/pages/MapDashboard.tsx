@@ -61,6 +61,8 @@ export function MapDashboard() {
   });
   const [isSyncEnabled, setIsSyncEnabled] = useState(true);
   const rightMapRef = useRef<maplibregl.Map | null>(null);
+  const isSyncingRef = useRef(false); // Prevent infinite sync loops
+  const isSyncEnabledRef = useRef(true); // Ref for closure access
 
   // WebSocket connection for real-time updates
   useWebSocket((message) => {
@@ -96,6 +98,11 @@ export function MapDashboard() {
       loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId);
     }
   }, [selectedElection, drillDown.currentLevel, drillDown.currentParentId]);
+
+  // Keep sync ref in sync with state (for closure access)
+  useEffect(() => {
+    isSyncEnabledRef.current = isSyncEnabled;
+  }, [isSyncEnabled]);
 
   const loadElections = async () => {
     try {
@@ -332,6 +339,17 @@ export function MapDashboard() {
     if (selectedElection) {
       loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId);
     }
+
+    // Set up sync handler for left map
+    map.on('move', () => {
+      if (!isSyncEnabledRef.current || isSyncingRef.current || !rightMapRef.current) return;
+      isSyncingRef.current = true;
+      rightMapRef.current.setCenter(map.getCenter());
+      rightMapRef.current.setZoom(map.getZoom());
+      rightMapRef.current.setBearing(map.getBearing());
+      rightMapRef.current.setPitch(map.getPitch());
+      isSyncingRef.current = false;
+    });
   };
 
   // Right map handlers for comparison mode
@@ -340,6 +358,17 @@ export function MapDashboard() {
     if (rightElection) {
       loadElectionResultsForMap(map, rightElection, rightDrillDown.currentLevel, rightDrillDown.currentParentId, true);
     }
+
+    // Set up sync handler for right map
+    map.on('move', () => {
+      if (!isSyncEnabledRef.current || isSyncingRef.current || !mapRef.current) return;
+      isSyncingRef.current = true;
+      mapRef.current.setCenter(map.getCenter());
+      mapRef.current.setZoom(map.getZoom());
+      mapRef.current.setBearing(map.getBearing());
+      mapRef.current.setPitch(map.getPitch());
+      isSyncingRef.current = false;
+    });
   };
 
   const loadElectionResultsForMap = async (
@@ -560,6 +589,22 @@ export function MapDashboard() {
                 </button>
               </div>
             )}
+            {/* Sync Toggle (only in comparison mode) */}
+            {isComparisonMode && (
+              <div>
+                <label className="block text-sm font-medium mb-2">Sync View</label>
+                <button
+                  onClick={() => setIsSyncEnabled(!isSyncEnabled)}
+                  className={`px-4 py-2 rounded-md transition-colors ${
+                    isSyncEnabled
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  {isSyncEnabled ? 'Sync On' : 'Sync Off'}
+                </button>
+              </div>
+            )}
             {/* Election Selector */}
             <div className="w-64">
               <label className="block text-sm font-medium mb-2">
@@ -638,17 +683,21 @@ export function MapDashboard() {
               )}
 
               {/* Legend */}
-              {selectedElection && !isComparisonMode && (
-                <div className="absolute bottom-6 left-6 bg-gray-800 p-4 rounded-lg shadow-lg max-w-xs">
-                  <h3 className="font-bold mb-2">{LEVEL_NAMES[drillDown.currentLevel]} Map</h3>
-                  <p className="text-sm text-gray-400 mb-2">
-                    Regions are colored by winning party
+              {selectedElection && (
+                <div className={`absolute bottom-6 left-6 bg-gray-800 rounded-lg shadow-lg ${isComparisonMode ? 'p-2 text-xs' : 'p-4 max-w-xs'}`}>
+                  <h3 className={`font-bold ${isComparisonMode ? 'mb-1 text-sm' : 'mb-2'}`}>
+                    {LEVEL_NAMES[drillDown.currentLevel]} Map
+                  </h3>
+                  <p className={`text-gray-400 ${isComparisonMode ? '' : 'text-sm mb-2'}`}>
+                    Colored by winner
                   </p>
-                  <p className="text-xs text-gray-500">
-                    {drillDown.currentLevel < 5
-                      ? 'Click on any region to drill down'
-                      : 'Click on any parish to see detailed results'}
-                  </p>
+                  {!isComparisonMode && (
+                    <p className="text-xs text-gray-500">
+                      {drillDown.currentLevel < 5
+                        ? 'Click on any region to drill down'
+                        : 'Click on any parish to see detailed results'}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -701,6 +750,18 @@ export function MapDashboard() {
                         </span>
                       )}
                     </div>
+                  </div>
+                )}
+
+                {/* Right Map Legend */}
+                {rightElection && (
+                  <div className="absolute bottom-6 left-6 bg-gray-800 p-2 rounded-lg shadow-lg text-xs">
+                    <h3 className="font-bold mb-1 text-sm">
+                      {LEVEL_NAMES[rightDrillDown.currentLevel]} Map
+                    </h3>
+                    <p className="text-gray-400">
+                      Colored by winner
+                    </p>
                   </div>
                 )}
               </div>
