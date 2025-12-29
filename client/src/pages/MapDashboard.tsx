@@ -209,14 +209,21 @@ export function MapDashboard() {
         // If not at parish level (5), drill down to children
         if (featureLevel < 5) {
           const nextLevel = featureLevel + 1;
-          setDrillDown(prev => ({
+          const newDrillDownState = (prev: DrillDownState) => ({
             currentLevel: nextLevel,
             currentParentId: unitId,
             breadcrumb: [
               ...prev.breadcrumb,
               { id: unitId, name: unitName, level: featureLevel }
             ]
-          }));
+          });
+
+          setDrillDown(newDrillDownState);
+
+          // Mirror to right map if sync is enabled
+          if (isSyncEnabledRef.current) {
+            setRightDrillDown(newDrillDownState);
+          }
           return;
         }
 
@@ -320,14 +327,19 @@ export function MapDashboard() {
   const handleBreadcrumbClick = (item: BreadcrumbItem) => {
     if (item.level === 0) {
       // Go back to national view (district level)
-      setDrillDown({
+      const nationalState = {
         currentLevel: 2,
         currentParentId: null,
         breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
-      });
+      };
+      setDrillDown(nationalState);
+      // Mirror to right map if sync is enabled
+      if (isSyncEnabledRef.current) {
+        setRightDrillDown(nationalState);
+      }
     } else {
       // Go back to a specific level
-      setDrillDown(prev => {
+      const updateState = (prev: DrillDownState) => {
         const itemIndex = prev.breadcrumb.findIndex(b => b.id === item.id);
         const newBreadcrumb = prev.breadcrumb.slice(0, itemIndex + 1);
         return {
@@ -335,7 +347,12 @@ export function MapDashboard() {
           currentParentId: item.id,
           breadcrumb: newBreadcrumb
         };
-      });
+      };
+      setDrillDown(updateState);
+      // Mirror to right map if sync is enabled
+      if (isSyncEnabledRef.current) {
+        setRightDrillDown(updateState);
+      }
     }
   };
 
@@ -452,14 +469,21 @@ export function MapDashboard() {
           // If not at parish level (5), drill down to children
           if (featureLevel < 5) {
             const nextLevel = featureLevel + 1;
-            setRightDrillDown(prev => ({
+            const newDrillDownState = (prev: DrillDownState) => ({
               currentLevel: nextLevel,
               currentParentId: unitId,
               breadcrumb: [
                 ...prev.breadcrumb,
                 { id: unitId, name: unitName, level: featureLevel }
               ]
-            }));
+            });
+
+            setRightDrillDown(newDrillDownState);
+
+            // Mirror to left map if sync is enabled
+            if (isSyncEnabledRef.current) {
+              setDrillDown(newDrillDownState);
+            }
           }
         });
 
@@ -499,13 +523,18 @@ export function MapDashboard() {
   // Handle right breadcrumb click
   const handleRightBreadcrumbClick = (item: BreadcrumbItem) => {
     if (item.level === 0) {
-      setRightDrillDown({
+      const nationalState = {
         currentLevel: 2,
         currentParentId: null,
         breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
-      });
+      };
+      setRightDrillDown(nationalState);
+      // Mirror to left map if sync is enabled
+      if (isSyncEnabledRef.current) {
+        setDrillDown(nationalState);
+      }
     } else {
-      setRightDrillDown(prev => {
+      const updateState = (prev: DrillDownState) => {
         const itemIndex = prev.breadcrumb.findIndex(b => b.id === item.id);
         const newBreadcrumb = prev.breadcrumb.slice(0, itemIndex + 1);
         return {
@@ -513,7 +542,12 @@ export function MapDashboard() {
           currentParentId: item.id,
           breadcrumb: newBreadcrumb
         };
-      });
+      };
+      setRightDrillDown(updateState);
+      // Mirror to left map if sync is enabled
+      if (isSyncEnabledRef.current) {
+        setDrillDown(updateState);
+      }
     }
   };
 
@@ -600,24 +634,26 @@ export function MapDashboard() {
                 </button>
               </div>
             )}
-            {/* Election Selector */}
-            <div className="w-64">
-              <label className="block text-sm font-medium mb-2">
-                Select Election
-              </label>
-              <select
-                value={selectedElection || ''}
-                onChange={(e) => handleElectionChange(parseInt(e.target.value))}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Choose an election...</option>
-                {elections.map((election) => (
-                  <option key={election.id} value={election.id}>
-                    {election.name} ({new Date(election.electionDate).toLocaleDateString()})
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Election Selector - only show in single map mode */}
+            {!isComparisonMode && (
+              <div className="w-64">
+                <label className="block text-sm font-medium mb-2">
+                  Select Election
+                </label>
+                <select
+                  value={selectedElection || ''}
+                  onChange={(e) => handleElectionChange(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Choose an election...</option>
+                  {elections.map((election) => (
+                    <option key={election.id} value={election.id}>
+                      {election.name} ({new Date(election.electionDate).toLocaleDateString()})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -654,12 +690,20 @@ export function MapDashboard() {
             <div className={`relative ${isComparisonMode ? 'w-1/2' : 'w-full'} h-full`}>
               <Map onLoad={handleMapLoad} className="absolute inset-0" />
 
-              {/* Election label for comparison mode */}
-              {isComparisonMode && selectedElection && (
+              {/* Left Election Selector for comparison mode */}
+              {isComparisonMode && (
                 <div className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded-lg shadow-lg z-10">
-                  <span className="text-sm font-medium">
-                    {elections.find(e => e.id === selectedElection)?.name || 'Election'}
-                  </span>
+                  <select
+                    value={selectedElection || ''}
+                    onChange={(e) => handleElectionChange(parseInt(e.target.value))}
+                    className="bg-transparent text-white text-sm font-medium focus:outline-none cursor-pointer"
+                  >
+                    {elections.map((election) => (
+                      <option key={election.id} value={election.id} className="text-gray-900">
+                        {election.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
 
