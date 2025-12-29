@@ -125,7 +125,9 @@ export const api = {
         id: number;
         name: string;
         electionDate: string;
-        electionType: string;
+        electionType: { name: string; code: string; electoralLevel: number };
+        electionTypeName: string;
+        electionTypeCode: string;
         isActive: boolean;
         createdAt: string;
         _count: { candidates: number; results: number };
@@ -153,13 +155,19 @@ export const api = {
       id: number;
       name: string;
       electionDate: string;
-      electionType: string;
+      electionType: {
+        id: number;
+        name: string;
+        code: string;
+        electoralLevel: number;
+      };
       isActive: boolean;
       candidates: Array<{
         id: number;
-        name: string;
-        party: string;
-        partyColor: string | null;
+        person: { fullName: string };
+        party: { name: string; abbreviation: string; color: string } | null;
+        electoralAreaId: number | null;
+        isIndependent: boolean;
       }>;
       _count: { results: number };
     }>(`/api/elections/${id}`),
@@ -171,19 +179,16 @@ export const api = {
         id: number;
         electionId: number;
         candidateId: number;
-        administrativeUnitId: number;
+        adminUnitId: number;
         votes: number;
-        validVotes: number | null;
-        invalidVotes: number | null;
-        turnout: number | null;
+        votePercent: string | null;
         status: string;
         candidate: {
           id: number;
-          name: string;
-          party: string;
-          partyColor: string | null;
+          person: { fullName: string };
+          party: { name: string; abbreviation: string; color: string } | null;
         };
-        administrativeUnit: {
+        adminUnit: {
           id: number;
           name: string;
           code: string | null;
@@ -249,4 +254,138 @@ export const api = {
         body: JSON.stringify({ reason }),
       }
     ),
+
+  // Reference data endpoints
+  getElectionTypes: () =>
+    apiRequest<
+      Array<{
+        id: number;
+        name: string;
+        code: string;
+        electoralLevel: number;
+        description: string | null;
+      }>
+    >('/api/reference/election-types'),
+
+  getParties: () =>
+    apiRequest<
+      Array<{
+        id: number;
+        name: string;
+        abbreviation: string;
+        color: string;
+        logoUrl: string | null;
+        isActive: boolean;
+      }>
+    >('/api/reference/parties'),
+
+  getPersons: (search?: string) =>
+    apiRequest<
+      Array<{
+        id: number;
+        fullName: string;
+        gender: string | null;
+      }>
+    >(`/api/reference/persons${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+
+  createPerson: (data: { fullName: string; gender?: string }) =>
+    apiRequest<{ message: string; person: { id: number; fullName: string } }>(
+      '/api/reference/persons',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    ),
+
+  getAdminUnits: (level?: number, parentId?: number) => {
+    const params = new URLSearchParams();
+    if (level !== undefined) params.append('level', level.toString());
+    if (parentId !== undefined) params.append('parentId', parentId.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return apiRequest<
+      Array<{
+        id: number;
+        name: string;
+        code: string | null;
+        level: number;
+        parentId: number | null;
+      }>
+    >(`/api/reference/admin-units${query}`);
+  },
+
+  // Election management
+  createElection: (data: {
+    name: string;
+    year: number;
+    electionDate: string;
+    electionTypeId: number;
+    isActive?: boolean;
+  }) =>
+    apiRequest<{ message: string; election: any }>('/api/elections', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateElection: (id: number, data: {
+    name?: string;
+    year?: number;
+    electionDate?: string;
+    electionTypeId?: number;
+    isActive?: boolean;
+  }) =>
+    apiRequest<{ message: string; election: any }>(`/api/elections/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteElection: (id: number) =>
+    apiRequest<{ message: string }>(`/api/elections/${id}`, {
+      method: 'DELETE',
+    }),
+
+  // Candidate management
+  getCandidatesByElection: (electionId: number) =>
+    apiRequest<
+      Array<{
+        id: number;
+        personId: number;
+        partyId: number | null;
+        electoralAreaId: number | null;
+        ballotOrder: number | null;
+        isIndependent: boolean;
+        person: { fullName: string };
+        party: { name: string; abbreviation: string; color: string } | null;
+        electoralArea: { name: string; code: string | null } | null;
+        _count: { results: number };
+      }>
+    >(`/api/elections/${electionId}/candidates`),
+
+  createCandidate: (data: {
+    electionId: number;
+    personId: number;
+    partyId?: number;
+    electoralAreaId?: number;
+    ballotOrder?: number;
+    isIndependent?: boolean;
+  }) =>
+    apiRequest<{ message: string; candidate: any }>('/api/candidates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateCandidate: (id: number, data: {
+    partyId?: number;
+    electoralAreaId?: number;
+    ballotOrder?: number;
+    isIndependent?: boolean;
+  }) =>
+    apiRequest<{ message: string; candidate: any }>(`/api/candidates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteCandidate: (id: number) =>
+    apiRequest<{ message: string }>(`/api/candidates/${id}`, {
+      method: 'DELETE',
+    }),
 };

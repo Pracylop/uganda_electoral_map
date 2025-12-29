@@ -4,10 +4,10 @@ import prisma from '../config/database';
 // Create candidate (Editor/Admin only)
 export const createCandidate = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { electionId, name, party, partyColor, photoUrl } = req.body;
+    const { electionId, personId, partyId, electoralAreaId, ballotOrder, photoUrl, isIndependent } = req.body;
 
-    if (!electionId || !name || !party) {
-      res.status(400).json({ error: 'Election ID, name, and party are required' });
+    if (!electionId || !personId) {
+      res.status(400).json({ error: 'Election ID and person ID are required' });
       return;
     }
 
@@ -21,13 +21,41 @@ export const createCandidate = async (req: Request, res: Response): Promise<void
       return;
     }
 
+    // Verify person exists
+    const person = await prisma.person.findUnique({
+      where: { id: parseInt(personId) }
+    });
+
+    if (!person) {
+      res.status(404).json({ error: 'Person not found' });
+      return;
+    }
+
+    // Verify party exists if provided
+    if (partyId) {
+      const party = await prisma.politicalParty.findUnique({
+        where: { id: parseInt(partyId) }
+      });
+      if (!party) {
+        res.status(404).json({ error: 'Party not found' });
+        return;
+      }
+    }
+
     const candidate = await prisma.candidate.create({
       data: {
         electionId: parseInt(electionId),
-        name,
-        party,
-        partyColor,
-        photoUrl
+        personId: parseInt(personId),
+        partyId: partyId ? parseInt(partyId) : null,
+        electoralAreaId: electoralAreaId ? parseInt(electoralAreaId) : null,
+        ballotOrder: ballotOrder ? parseInt(ballotOrder) : null,
+        photoUrl,
+        isIndependent: isIndependent || false
+      },
+      include: {
+        person: { select: { fullName: true } },
+        party: { select: { name: true, abbreviation: true, color: true } },
+        election: { select: { name: true, year: true } }
       }
     });
 
@@ -35,7 +63,11 @@ export const createCandidate = async (req: Request, res: Response): Promise<void
       message: 'Candidate created successfully',
       candidate
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.code === 'P2002') {
+      res.status(409).json({ error: 'Candidate already exists for this election' });
+      return;
+    }
     console.error('Create candidate error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -45,7 +77,7 @@ export const createCandidate = async (req: Request, res: Response): Promise<void
 export const updateCandidate = async (req: Request, res: Response): Promise<void> => {
   try {
     const candidateId = parseInt(req.params.id);
-    const { name, party, partyColor, photoUrl } = req.body;
+    const { partyId, electoralAreaId, ballotOrder, photoUrl, isIndependent } = req.body;
 
     if (isNaN(candidateId)) {
       res.status(400).json({ error: 'Invalid candidate ID' });
@@ -53,14 +85,20 @@ export const updateCandidate = async (req: Request, res: Response): Promise<void
     }
 
     const updateData: any = {};
-    if (name !== undefined) updateData.name = name;
-    if (party !== undefined) updateData.party = party;
-    if (partyColor !== undefined) updateData.partyColor = partyColor;
+    if (partyId !== undefined) updateData.partyId = partyId ? parseInt(partyId) : null;
+    if (electoralAreaId !== undefined) updateData.electoralAreaId = electoralAreaId ? parseInt(electoralAreaId) : null;
+    if (ballotOrder !== undefined) updateData.ballotOrder = ballotOrder ? parseInt(ballotOrder) : null;
     if (photoUrl !== undefined) updateData.photoUrl = photoUrl;
+    if (isIndependent !== undefined) updateData.isIndependent = isIndependent;
 
     const candidate = await prisma.candidate.update({
       where: { id: candidateId },
-      data: updateData
+      data: updateData,
+      include: {
+        person: { select: { fullName: true } },
+        party: { select: { name: true, abbreviation: true, color: true } },
+        election: { select: { name: true, year: true } }
+      }
     });
 
     res.json({
@@ -102,6 +140,34 @@ export const deleteCandidate = async (req: Request, res: Response): Promise<void
       return;
     }
     console.error('Delete candidate error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Get candidates by election
+export const getCandidatesByElection = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const electionId = parseInt(req.params.electionId);
+
+    if (isNaN(electionId)) {
+      res.status(400).json({ error: 'Invalid election ID' });
+      return;
+    }
+
+    const candidates = await prisma.candidate.findMany({
+      where: { electionId },
+      include: {
+        person: { select: { fullName: true } },
+        party: { select: { name: true, abbreviation: true, color: true } },
+        electoralArea: { select: { name: true, code: true } },
+        _count: { select: { results: true } }
+      },
+      orderBy: { ballotOrder: 'asc' }
+    });
+
+    res.json(candidates);
+  } catch (error) {
+    console.error('Get candidates error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };

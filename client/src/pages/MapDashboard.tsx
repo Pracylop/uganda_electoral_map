@@ -5,9 +5,8 @@ import Map from '../components/Map';
 import NationalDashboard from '../components/NationalDashboard';
 import { api } from '../lib/api';
 import { useWebSocket } from '../hooks/useWebSocket';
+import type { DrillDownState, BreadcrumbItem } from '../hooks/useElectionMap';
 import {
-  DrillDownState,
-  BreadcrumbItem,
   LEVEL_NAMES,
   INITIAL_DRILL_DOWN,
   createResultsPopupHTML
@@ -18,7 +17,8 @@ interface Election {
   id: number;
   name: string;
   electionDate: string;
-  electionType: string;
+  electionType: { name: string; code: string };
+  electionTypeName?: string;
 }
 
 export function MapDashboard() {

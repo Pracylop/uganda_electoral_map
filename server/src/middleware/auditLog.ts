@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/database';
+import { UserRole } from '@prisma/client';
 
 // Helper to get client IP address
 const getClientIp = (req: Request): string => {
@@ -26,7 +27,7 @@ export const createAuditLog = async (
     await prisma.auditLog.create({
       data: {
         userId,
-        userRole,
+        userRole: userRole as UserRole,
         actionType,
         entityType,
         entityId,
@@ -100,7 +101,7 @@ export const logLogin = async (
       await prisma.auditLog.create({
         data: {
           userId,
-          userRole: 'unknown', // Will be updated with actual role on success
+          userRole: 'viewer' as UserRole, // Default role for login tracking
           actionType: success ? 'LOGIN' : 'LOGIN_FAILED',
           entityType: 'user',
           entityId: userId,

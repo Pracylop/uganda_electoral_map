@@ -4,6 +4,7 @@ import { Dashboard } from './pages/Dashboard';
 import { UserManagement } from './pages/UserManagement';
 import { Elections } from './pages/Elections';
 import { ElectionResults } from './pages/ElectionResults';
+import { ElectionCandidates } from './pages/ElectionCandidates';
 import { ResultsEntry } from './pages/ResultsEntry';
 import { ApprovalQueue } from './pages/ApprovalQueue';
 import { MapDashboard } from './pages/MapDashboard';
@@ -52,6 +53,16 @@ function App() {
             <ProtectedRoute>
               <Layout>
                 <ElectionResults />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/elections/:id/candidates"
+          element={
+            <ProtectedRoute requiredRole={['editor', 'admin']}>
+              <Layout>
+                <ElectionCandidates />
               </Layout>
             </ProtectedRoute>
           }

@@ -1,6 +1,7 @@
 import maplibregl from 'maplibre-gl';
 import Map from './Map';
-import { DrillDownState, BreadcrumbItem, LEVEL_NAMES } from '../hooks/useElectionMap';
+import type { DrillDownState, BreadcrumbItem } from '../hooks/useElectionMap';
+import { LEVEL_NAMES } from '../hooks/useElectionMap';
 
 interface Election {
   id: number;
@@ -39,7 +40,6 @@ export function MapPanel({
   variant = 'single',
   className = ''
 }: MapPanelProps) {
-  const isLeft = variant === 'left';
   const isRight = variant === 'right';
   const isSingle = variant === 'single';
 

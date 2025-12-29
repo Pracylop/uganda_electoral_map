@@ -1,6 +1,6 @@
 /**
  * Import Polling Stations
- * Imports polling station data with per-election voter demographics
+ * Clears existing data and imports polling stations from combined CSV
  * Run: npx tsx src/scripts/importPollingStations.ts
  */
 
@@ -31,6 +31,18 @@ function parseCSV(content: string): CsvRow[] {
   return rows;
 }
 
+async function clearExistingData() {
+  console.log('\nClearing existing polling station data...');
+
+  // Delete polling station elections first (foreign key constraint)
+  const deletedElections = await prisma.pollingStationElection.deleteMany({});
+  console.log(`  Deleted ${deletedElections.count} polling station election records`);
+
+  // Delete polling stations
+  const deletedStations = await prisma.pollingStation.deleteMany({});
+  console.log(`  Deleted ${deletedStations.count} polling stations`);
+}
+
 async function main() {
   console.log('='.repeat(60));
   console.log('Uganda Electoral Map - Polling Stations Import');
@@ -39,7 +51,7 @@ async function main() {
   try {
     // Navigate from app/server/src/scripts to project root Data directory
     const projectRoot = path.resolve(__dirname, '..', '..', '..', '..');
-    const csvPath = path.join(projectRoot, 'Data/Polling Stations/combined_polling_stations.csv');
+    const csvPath = path.join(projectRoot, 'Data/Polling Stations/3_h_combined_polling_stations_2011_2016_2021.csv');
     console.log(`Data file: ${csvPath}`);
 
     if (!fs.existsSync(csvPath)) {
@@ -51,6 +63,9 @@ async function main() {
     const csvContent = fs.readFileSync(csvPath, 'utf-8');
     const rows = parseCSV(csvContent);
     console.log(`  Found ${rows.length} polling station records`);
+
+    // Clear existing data first
+    await clearExistingData();
 
     // Get elections
     const elections = await prisma.election.findMany({
@@ -64,7 +79,7 @@ async function main() {
     for (const election of elections) {
       electionMap.set(election.year, election.id);
     }
-    console.log(`  Found elections for years: ${Array.from(electionMap.keys()).join(', ')}`);
+    console.log(`\nFound elections for years: ${Array.from(electionMap.keys()).join(', ')}`);
 
     // Build parish lookup
     console.log('\nBuilding parish lookup...');
@@ -119,12 +134,10 @@ async function main() {
       const constituencyName = row['Constituency.Name']?.toUpperCase() || '';
       const subcountyName = row['SubCounty.Name']?.toUpperCase() || '';
       const parishName = row['Parish.Name']?.toUpperCase() || '';
-      const stationCode = row['Station.Code'] || '';
+      const stationCode = row['Station.Code']?.replace('.0', '') || '';
       const stationName = row['Station.Name'] || '';
       const year = parseInt(row['Year']) || 0;
-      const totalVoters = parseInt(row['Total.Voters']) || 0;
-      const femaleVoters = row['Female.Voters'] === 'NA' ? null : parseInt(row['Female.Voters']) || null;
-      const maleVoters = row['Male.Voters'] === 'NA' ? null : parseInt(row['Male.Voters']) || null;
+      const registeredVoters = parseInt(row['Registered.Voters']) || 0;
 
       // Find parish
       const parishKey = `${districtName}-${constituencyName}-${subcountyName}-${parishName}`;
@@ -143,25 +156,14 @@ async function main() {
       let stationId = stationMap.get(stationKey);
 
       if (!stationId) {
-        // Check if exists in DB
-        let station = await prisma.pollingStation.findFirst({
-          where: {
-            parishId,
+        const station = await prisma.pollingStation.create({
+          data: {
             code: stationCode,
+            name: stationName,
+            parishId,
           },
         });
-
-        if (!station) {
-          station = await prisma.pollingStation.create({
-            data: {
-              code: stationCode,
-              name: stationName,
-              parishId,
-            },
-          });
-          stationsCreated++;
-        }
-
+        stationsCreated++;
         stationId = station.id;
         stationMap.set(stationKey, stationId);
       }
@@ -173,42 +175,25 @@ async function main() {
         continue;
       }
 
-      // Check if election data exists
-      const existingData = await prisma.pollingStationElection.findUnique({
-        where: {
-          pollingStationId_electionId: {
-            pollingStationId: stationId,
-            electionId,
-          },
-        },
-      });
-
-      if (existingData) {
-        skipped++;
-        continue;
-      }
-
       // Create polling station election data
       await prisma.pollingStationElection.create({
         data: {
           pollingStationId: stationId,
           electionId,
-          totalVoters,
-          femaleVoters,
-          maleVoters,
+          totalVoters: registeredVoters,
           isActive: true,
         },
       });
       electionDataCreated++;
 
-      if ((stationsCreated + electionDataCreated) % 2000 === 0) {
+      if ((stationsCreated + electionDataCreated) % 5000 === 0) {
         console.log(`  ... ${stationsCreated} stations, ${electionDataCreated} election records created`);
       }
     }
 
     console.log(`\n  Polling stations created: ${stationsCreated}`);
     console.log(`  Election data records created: ${electionDataCreated}`);
-    console.log(`  Skipped (already exists or no election): ${skipped}`);
+    console.log(`  Skipped (no election found for year): ${skipped}`);
     console.log(`  Parish not found: ${parishNotFound}`);
 
     // Print summary

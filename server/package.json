@@ -16,11 +16,18 @@
     "import:stations": "tsx src/scripts/importPollingStations.ts",
     "import:issues": "tsx src/scripts/importElectoralIssues.ts"
   },
-  "keywords": ["election", "gis", "uganda", "broadcast"],
+  "keywords": [
+    "election",
+    "gis",
+    "uganda",
+    "broadcast"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "@prisma/client": "^6.4.1",
+    "@turf/helpers": "^7.3.1",
+    "@turf/simplify": "^7.3.1",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -34,6 +41,7 @@
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.13.6",
+    "@types/ws": "^8.18.1",
     "prisma": "^6.4.1",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"

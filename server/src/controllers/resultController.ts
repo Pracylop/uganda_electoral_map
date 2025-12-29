@@ -20,16 +20,13 @@ export const createResult = async (req: Request, res: Response): Promise<void> =
     const {
       electionId,
       candidateId,
-      administrativeUnitId,
-      votes,
-      validVotes,
-      invalidVotes,
-      turnout
+      adminUnitId,
+      votes
     } = req.body;
 
-    if (!electionId || !candidateId || !administrativeUnitId || votes === undefined) {
+    if (!electionId || !candidateId || !adminUnitId || votes === undefined) {
       res.status(400).json({
-        error: 'Election ID, candidate ID, administrative unit ID, and votes are required'
+        error: 'Election ID, candidate ID, admin unit ID, and votes are required'
       });
       return;
     }
@@ -37,8 +34,11 @@ export const createResult = async (req: Request, res: Response): Promise<void> =
     // Verify election, candidate, and admin unit exist
     const [election, candidate, adminUnit] = await Promise.all([
       prisma.election.findUnique({ where: { id: parseInt(electionId) } }),
-      prisma.candidate.findUnique({ where: { id: parseInt(candidateId) } }),
-      prisma.administrativeUnit.findUnique({ where: { id: parseInt(administrativeUnitId) } })
+      prisma.candidate.findUnique({
+        where: { id: parseInt(candidateId) },
+        include: { person: { select: { fullName: true } } }
+      }),
+      prisma.administrativeUnit.findUnique({ where: { id: parseInt(adminUnitId) } })
     ]);
 
     if (!election) {
@@ -61,15 +61,27 @@ export const createResult = async (req: Request, res: Response): Promise<void> =
       data: {
         electionId: parseInt(electionId),
         candidateId: parseInt(candidateId),
-        adminUnitId: parseInt(administrativeUnitId),
+        adminUnitId: parseInt(adminUnitId),
         votes: parseInt(votes),
         status: 'draft',
         enteredBy: req.user!.userId
       },
       include: {
         election: true,
-        candidate: true,
-        administrativeUnit: true
+        candidate: {
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { abbreviation: true, color: true } }
+          }
+        },
+        adminUnit: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            level: true
+          }
+        }
       }
     });
 
@@ -83,7 +95,7 @@ export const createResult = async (req: Request, res: Response): Promise<void> =
       null,
       result,
       ipAddress,
-      `Created result for ${candidate.name} in ${adminUnit.name}`
+      `Created result for ${candidate.person.fullName} in ${adminUnit.name}`
     );
 
     res.status(201).json({
@@ -115,8 +127,19 @@ export const submitResultForApproval = async (req: Request, res: Response): Prom
     const existingResult = await prisma.result.findUnique({
       where: { id: resultId },
       include: {
-        candidate: true,
-        administrativeUnit: true
+        candidate: {
+          include: {
+            person: { select: { fullName: true } }
+          }
+        },
+        adminUnit: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            level: true
+          }
+        }
       }
     });
 
@@ -137,8 +160,20 @@ export const submitResultForApproval = async (req: Request, res: Response): Prom
       },
       include: {
         election: true,
-        candidate: true,
-        administrativeUnit: true
+        candidate: {
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { abbreviation: true, color: true } }
+          }
+        },
+        adminUnit: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            level: true
+          }
+        }
       }
     });
 
@@ -161,8 +196,8 @@ export const submitResultForApproval = async (req: Request, res: Response): Prom
         type: 'RESULT_SUBMITTED',
         payload: {
           resultId: result.id,
-          candidate: result.candidate.name,
-          location: result.administrativeUnit.name
+          candidate: result.candidate.person.fullName,
+          location: result.adminUnit.name
         }
       },
       ['editor', 'admin']
@@ -193,8 +228,17 @@ export const approveResult = async (req: Request, res: Response): Promise<void> 
     const existingResult = await prisma.result.findUnique({
       where: { id: resultId },
       include: {
-        candidate: true,
-        administrativeUnit: true
+        candidate: {
+          include: { person: { select: { fullName: true } } }
+        },
+        adminUnit: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            level: true
+          }
+        }
       }
     });
 
@@ -217,8 +261,20 @@ export const approveResult = async (req: Request, res: Response): Promise<void> 
       },
       include: {
         election: true,
-        candidate: true,
-        administrativeUnit: true
+        candidate: {
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { abbreviation: true, color: true } }
+          }
+        },
+        adminUnit: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            level: true
+          }
+        }
       }
     });
 
@@ -302,8 +358,20 @@ export const rejectResult = async (req: Request, res: Response): Promise<void> =
       },
       include: {
         election: true,
-        candidate: true,
-        administrativeUnit: true
+        candidate: {
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { abbreviation: true, color: true } }
+          }
+        },
+        adminUnit: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            level: true
+          }
+        }
       }
     });
 
@@ -362,12 +430,24 @@ export const getResultsByElection = async (req: Request, res: Response): Promise
     const results = await prisma.result.findMany({
       where: whereClause,
       include: {
-        candidate: true,
-        administrativeUnit: true
+        candidate: {
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { name: true, abbreviation: true, color: true } }
+          }
+        },
+        adminUnit: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            level: true
+          }
+        }
       },
       orderBy: [
-        { administrativeUnit: { name: 'asc' } },
-        { candidate: { name: 'asc' } }
+        { adminUnit: { name: 'asc' } },
+        { candidate: { person: { fullName: 'asc' } } }
       ]
     });
 
@@ -385,8 +465,20 @@ export const getPendingResults = async (req: Request, res: Response): Promise<vo
       where: { status: 'pending' },
       include: {
         election: true,
-        candidate: true,
-        administrativeUnit: true
+        candidate: {
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { name: true, abbreviation: true, color: true } }
+          }
+        },
+        adminUnit: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            level: true
+          }
+        }
       },
       orderBy: { updatedAt: 'asc' }
     });
@@ -412,7 +504,13 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
     const election = await prisma.election.findUnique({
       where: { id: electionId },
       include: {
-        candidates: true
+        electionType: true,
+        candidates: {
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { name: true, abbreviation: true, color: true } }
+          }
+        }
       }
     });
 
@@ -428,7 +526,12 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
         status: 'approved'
       },
       include: {
-        candidate: true
+        candidate: {
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { abbreviation: true, color: true } }
+          }
+        }
       }
     });
 
@@ -452,9 +555,9 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
       } else {
         candidateTotals.set(result.candidateId, {
           candidateId: result.candidateId,
-          candidateName: result.candidate.name,
-          party: result.candidate.party,
-          partyColor: result.candidate.partyColor,
+          candidateName: result.candidate.person.fullName,
+          party: result.candidate.party?.abbreviation || 'IND',
+          partyColor: result.candidate.party?.color || null,
           totalVotes: result.votes
         });
       }
@@ -468,17 +571,19 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
       }))
       .sort((a, b) => b.totalVotes - a.totalVotes); // Sort by votes descending
 
-    // Get total registered voters (sum across all admin units at national level)
-    const registeredVotersResult = await prisma.administrativeUnit.aggregate({
-      _sum: {
-        registeredVoters: true
-      },
+    // Get total registered voters from election summaries
+    const summaryTotals = await prisma.electionSummary.aggregate({
       where: {
-        level: 0 // National level, or we could sum all lowest levels
+        electionId,
+        status: 'approved'
+      },
+      _sum: {
+        registeredVoters: true,
+        totalVotes: true
       }
     });
 
-    const totalRegisteredVoters = registeredVotersResult._sum.registeredVoters || 0;
+    const totalRegisteredVoters = summaryTotals._sum.registeredVoters || 0;
 
     // Calculate turnout
     const turnoutPercentage = totalRegisteredVoters > 0

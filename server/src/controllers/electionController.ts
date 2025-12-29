@@ -6,6 +6,13 @@ export const getAllElections = async (req: Request, res: Response): Promise<void
   try {
     const elections = await prisma.election.findMany({
       include: {
+        electionType: {
+          select: {
+            name: true,
+            code: true,
+            electoralLevel: true
+          }
+        },
         _count: {
           select: {
             candidates: true,
@@ -16,7 +23,14 @@ export const getAllElections = async (req: Request, res: Response): Promise<void
       orderBy: { electionDate: 'desc' }
     });
 
-    res.json(elections);
+    // Transform to include electionType name as a top-level field for backwards compatibility
+    const transformed = elections.map(e => ({
+      ...e,
+      electionTypeName: e.electionType.name,
+      electionTypeCode: e.electionType.code
+    }));
+
+    res.json(transformed);
   } catch (error) {
     console.error('Get elections error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -29,8 +43,12 @@ export const getActiveElection = async (req: Request, res: Response): Promise<vo
     const election = await prisma.election.findFirst({
       where: { isActive: true },
       include: {
+        electionType: true,
         candidates: {
-          orderBy: { name: 'asc' }
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { name: true, abbreviation: true, color: true } }
+          }
         }
       }
     });
@@ -60,8 +78,12 @@ export const getElectionById = async (req: Request, res: Response): Promise<void
     const election = await prisma.election.findUnique({
       where: { id: electionId },
       include: {
+        electionType: true,
         candidates: {
-          orderBy: { name: 'asc' }
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { name: true, abbreviation: true, color: true } }
+          }
         },
         _count: {
           select: { results: true }
@@ -84,25 +106,33 @@ export const getElectionById = async (req: Request, res: Response): Promise<void
 // Create election (Admin only)
 export const createElection = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, electionDate, electionType, isActive } = req.body;
+    const { name, year, electionDate, electionTypeId, isActive } = req.body;
 
-    if (!name || !electionDate || !electionType) {
-      res.status(400).json({ error: 'Name, date, and type are required' });
+    if (!name || !year || !electionDate || !electionTypeId) {
+      res.status(400).json({ error: 'Name, year, date, and election type ID are required' });
       return;
     }
 
-    const validTypes = ['Presidential', 'Parliamentary', 'Local'];
-    if (!validTypes.includes(electionType)) {
-      res.status(400).json({ error: 'Invalid election type', validTypes });
+    // Verify election type exists
+    const electionType = await prisma.electionType.findUnique({
+      where: { id: parseInt(electionTypeId) }
+    });
+
+    if (!electionType) {
+      res.status(404).json({ error: 'Election type not found' });
       return;
     }
 
     const election = await prisma.election.create({
       data: {
         name,
+        year: parseInt(year),
         electionDate: new Date(electionDate),
-        electionType,
+        electionTypeId: parseInt(electionTypeId),
         isActive: isActive || false
+      },
+      include: {
+        electionType: true
       }
     });
 
@@ -120,7 +150,7 @@ export const createElection = async (req: Request, res: Response): Promise<void>
 export const updateElection = async (req: Request, res: Response): Promise<void> => {
   try {
     const electionId = parseInt(req.params.id);
-    const { name, electionDate, electionType, isActive } = req.body;
+    const { name, year, electionDate, electionTypeId, isActive } = req.body;
 
     if (isNaN(electionId)) {
       res.status(400).json({ error: 'Invalid election ID' });
@@ -129,20 +159,27 @@ export const updateElection = async (req: Request, res: Response): Promise<void>
 
     const updateData: any = {};
     if (name !== undefined) updateData.name = name;
+    if (year !== undefined) updateData.year = parseInt(year);
     if (electionDate !== undefined) updateData.electionDate = new Date(electionDate);
-    if (electionType !== undefined) {
-      const validTypes = ['Presidential', 'Parliamentary', 'Local'];
-      if (!validTypes.includes(electionType)) {
-        res.status(400).json({ error: 'Invalid election type', validTypes });
+    if (electionTypeId !== undefined) {
+      // Verify election type exists
+      const electionType = await prisma.electionType.findUnique({
+        where: { id: parseInt(electionTypeId) }
+      });
+      if (!electionType) {
+        res.status(404).json({ error: 'Election type not found' });
         return;
       }
-      updateData.electionType = electionType;
+      updateData.electionTypeId = parseInt(electionTypeId);
     }
     if (isActive !== undefined) updateData.isActive = isActive;
 
     const election = await prisma.election.update({
       where: { id: electionId },
-      data: updateData
+      data: updateData,
+      include: {
+        electionType: true
+      }
     });
 
     res.json({
@@ -201,11 +238,14 @@ export const getCandidatesByElection = async (req: Request, res: Response): Prom
     const candidates = await prisma.candidate.findMany({
       where: { electionId },
       include: {
+        person: { select: { fullName: true } },
+        party: { select: { name: true, abbreviation: true, color: true } },
+        electoralArea: { select: { name: true, code: true } },
         _count: {
           select: { results: true }
         }
       },
-      orderBy: { name: 'asc' }
+      orderBy: { ballotOrder: 'asc' }
     });
 
     res.json(candidates);

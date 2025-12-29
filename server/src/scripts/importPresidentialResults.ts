@@ -1,6 +1,6 @@
 /**
  * Import Presidential Election Results
- * Imports 2016 and 2021 presidential election results from CSV files
+ * Imports 2011, 2016 and 2021 presidential election results from CSV files
  * Run: npx tsx src/scripts/importPresidentialResults.ts
  */
 
@@ -11,6 +11,17 @@ import * as path from 'path';
 const prisma = new PrismaClient();
 
 // Candidate data for each election year
+const candidates2011 = [
+  { name: 'ABED BWANIKA', party: 'PPP' },
+  { name: 'BESIGYE KIFEFE KIZZA', party: 'FDC' },
+  { name: 'BETI OLIVE KAMYA NAMISANGO', party: null }, // UFA not in system, treat as Independent
+  { name: 'BIDANDI-SSALI JABERI', party: null }, // PPP already used by Bwanika, likely Independent for this
+  { name: 'MAO NORBERT', party: 'DP' },
+  { name: 'OLARA OTUNNU', party: 'UPC' },
+  { name: 'SAMUEL LUBEGA MUKAAKU WALTER', party: null }, // Independent
+  { name: 'YOWERI MUSEVENI KAGUTA', party: 'NRM' },
+];
+
 const candidates2016 = [
   { name: 'ABED BWANIKA', party: 'PPP' },
   { name: 'AMAMA MBABAZI', party: null }, // Independent
@@ -315,6 +326,14 @@ async function main() {
     const projectRoot = path.resolve(__dirname, '..', '..', '..', '..');
     const dataDir = path.join(projectRoot, 'Data/Election Results/Presidential');
     console.log(`Data directory: ${dataDir}`);
+
+    // Import 2011 results
+    const csv2011 = path.join(dataDir, '5_c_2011_parish_results.csv');
+    if (fs.existsSync(csv2011)) {
+      await importElection(2011, candidates2011, csv2011, adminUser.id);
+    } else {
+      console.log(`File not found: ${csv2011}`);
+    }
 
     // Import 2016 results
     const csv2016 = path.join(dataDir, '5_a_2016_parish_results.csv');

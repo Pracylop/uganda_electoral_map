@@ -153,6 +153,10 @@ model AdministrativeUnit {
   issuesInSubcounty    ElectoralIssue[] @relation("IssueSubcounty")
   issuesInParish       ElectoralIssue[] @relation("IssueParish")
 
+  // District History Relations
+  asCurrentDistrict DistrictHistory[] @relation("CurrentDistrict")
+  asParentDistrict  DistrictHistory[] @relation("ParentDistrict")
+
   @@index([level])
   @@index([parentId])
   @@map("administrative_units")
@@ -421,6 +425,29 @@ model ElectoralIssueCandidate {
 
   @@unique([issueId, candidateId])
   @@map("electoral_issue_candidates")
+}
+
+// ============================================================================
+// DISTRICT HISTORY - Track boundary changes over time
+// ============================================================================
+
+model DistrictHistory {
+  id                Int       @id @default(autoincrement())
+  currentDistrictId Int       @map("current_district_id")
+  parentDistrictId  Int       @map("parent_district_id")
+  splitYear         Int       @map("split_year")
+  splitDate         DateTime? @map("split_date") @db.Date
+  notes             String?   @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  currentDistrict AdministrativeUnit @relation("CurrentDistrict", fields: [currentDistrictId], references: [id])
+  parentDistrict  AdministrativeUnit @relation("ParentDistrict", fields: [parentDistrictId], references: [id])
+
+  @@unique([currentDistrictId])
+  @@index([parentDistrictId])
+  @@index([splitYear])
+  @@map("district_history")
 }
 
 // ============================================================================
