@@ -5,6 +5,13 @@ import Map from '../components/Map';
 import NationalDashboard from '../components/NationalDashboard';
 import { api } from '../lib/api';
 import { useWebSocket } from '../hooks/useWebSocket';
+import {
+  DrillDownState,
+  BreadcrumbItem,
+  LEVEL_NAMES,
+  INITIAL_DRILL_DOWN,
+  createResultsPopupHTML
+} from '../hooks/useElectionMap';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface Election {
@@ -13,27 +20,6 @@ interface Election {
   electionDate: string;
   electionType: string;
 }
-
-interface BreadcrumbItem {
-  id: number;
-  name: string;
-  level: number;
-}
-
-interface DrillDownState {
-  currentLevel: number;
-  currentParentId: number | null;
-  breadcrumb: BreadcrumbItem[];
-}
-
-// Admin level names for display
-const LEVEL_NAMES: Record<number, string> = {
-  1: 'Subregion',
-  2: 'District',
-  3: 'Constituency',
-  4: 'Subcounty',
-  5: 'Parish'
-};
 
 export function MapDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -45,20 +31,12 @@ export function MapDashboard() {
   const mapRef = useRef<maplibregl.Map | null>(null);
 
   // Drill-down state (left map / single map)
-  const [drillDown, setDrillDown] = useState<DrillDownState>({
-    currentLevel: 2, // Start at district level
-    currentParentId: null,
-    breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
-  });
+  const [drillDown, setDrillDown] = useState<DrillDownState>(INITIAL_DRILL_DOWN);
 
   // Comparison mode state
   const [isComparisonMode, setIsComparisonMode] = useState(false);
   const [rightElection, setRightElection] = useState<number | null>(null);
-  const [rightDrillDown, setRightDrillDown] = useState<DrillDownState>({
-    currentLevel: 2,
-    currentParentId: null,
-    breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
-  });
+  const [rightDrillDown, setRightDrillDown] = useState<DrillDownState>(INITIAL_DRILL_DOWN);
   const [isSyncEnabled, setIsSyncEnabled] = useState(true);
   const rightMapRef = useRef<maplibregl.Map | null>(null);
   const isSyncingRef = useRef(false); // Prevent infinite sync loops
@@ -228,47 +206,9 @@ export function MapDashboard() {
         }
 
         // At parish level, show popup with results
-        const winner = props.winner ? JSON.parse(props.winner) : null;
-        const candidates = props.candidates ? JSON.parse(props.candidates) : [];
-
-        let popupHTML = `
-          <div class="p-3">
-            <h3 class="font-bold text-lg mb-2">${props.unitName}</h3>
-            <p class="text-sm text-gray-600 mb-2">Total Votes: ${(props.totalVotes || 0).toLocaleString()}</p>
-        `;
-
-        if (props.turnout) {
-          popupHTML += `<p class="text-sm text-gray-600 mb-2">Turnout: ${props.turnout}%</p>`;
-        }
-
-        if (winner) {
-          popupHTML += `
-            <div class="bg-green-100 p-2 rounded mb-2">
-              <p class="font-semibold">Winner: ${winner.name}</p>
-              <p class="text-sm">${winner.party} - ${(winner.votes || 0).toLocaleString()} votes</p>
-            </div>
-          `;
-        }
-
-        if (candidates.length > 0) {
-          popupHTML += `<div class="mt-2"><p class="text-sm font-semibold mb-1">All Candidates:</p>`;
-          candidates
-            .sort((a: any, b: any) => (b.votes || 0) - (a.votes || 0))
-            .forEach((c: any) => {
-              popupHTML += `
-                <p class="text-sm">
-                  ${c.name} (${c.party}): ${(c.votes || 0).toLocaleString()}
-                </p>
-              `;
-            });
-          popupHTML += `</div>`;
-        }
-
-        popupHTML += `</div>`;
-
         new maplibregl.Popup()
           .setLngLat(e.lngLat)
-          .setHTML(popupHTML)
+          .setHTML(createResultsPopupHTML(props))
           .addTo(map);
       });
 
@@ -316,26 +256,17 @@ export function MapDashboard() {
     setSelectedElection(electionId);
     setSearchParams({ election: electionId.toString() });
     // Reset drill-down state when election changes
-    setDrillDown({
-      currentLevel: 2,
-      currentParentId: null,
-      breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
-    });
+    setDrillDown(INITIAL_DRILL_DOWN);
   };
 
   // Navigate breadcrumb - go back to a specific level
   const handleBreadcrumbClick = (item: BreadcrumbItem) => {
     if (item.level === 0) {
       // Go back to national view (district level)
-      const nationalState = {
-        currentLevel: 2,
-        currentParentId: null,
-        breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
-      };
-      setDrillDown(nationalState);
+      setDrillDown(INITIAL_DRILL_DOWN);
       // Mirror to right map if sync is enabled
       if (isSyncEnabledRef.current) {
-        setRightDrillDown(nationalState);
+        setRightDrillDown(INITIAL_DRILL_DOWN);
       }
     } else {
       // Go back to a specific level
@@ -513,25 +444,16 @@ export function MapDashboard() {
   // Handle right election change
   const handleRightElectionChange = (electionId: number) => {
     setRightElection(electionId);
-    setRightDrillDown({
-      currentLevel: 2,
-      currentParentId: null,
-      breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
-    });
+    setRightDrillDown(INITIAL_DRILL_DOWN);
   };
 
   // Handle right breadcrumb click
   const handleRightBreadcrumbClick = (item: BreadcrumbItem) => {
     if (item.level === 0) {
-      const nationalState = {
-        currentLevel: 2,
-        currentParentId: null,
-        breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
-      };
-      setRightDrillDown(nationalState);
+      setRightDrillDown(INITIAL_DRILL_DOWN);
       // Mirror to left map if sync is enabled
       if (isSyncEnabledRef.current) {
-        setDrillDown(nationalState);
+        setDrillDown(INITIAL_DRILL_DOWN);
       }
     } else {
       const updateState = (prev: DrillDownState) => {
