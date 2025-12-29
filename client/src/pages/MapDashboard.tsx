@@ -63,6 +63,7 @@ export function MapDashboard() {
   const rightMapRef = useRef<maplibregl.Map | null>(null);
   const isSyncingRef = useRef(false); // Prevent infinite sync loops
   const isSyncEnabledRef = useRef(true); // Ref for closure access
+  const isProgrammaticMoveRef = useRef(false); // Disable sync during fitBounds
 
   // WebSocket connection for real-time updates
   useWebSocket((message) => {
@@ -274,6 +275,8 @@ export function MapDashboard() {
       });
 
       // Fit map to results bounds - use bbox from API if available
+      // Disable sync during programmatic fitBounds
+      isProgrammaticMoveRef.current = true;
       if (data.bbox && data.bbox.length === 4) {
         map.fitBounds(
           [[data.bbox[0], data.bbox[1]], [data.bbox[2], data.bbox[3]]],
@@ -293,6 +296,8 @@ export function MapDashboard() {
           map.fitBounds(bounds, { padding: 50 });
         }
       }
+      // Re-enable sync after a short delay to let fitBounds complete
+      setTimeout(() => { isProgrammaticMoveRef.current = false; }, 500);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to load election results'
@@ -340,14 +345,16 @@ export function MapDashboard() {
       loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId);
     }
 
-    // Set up sync handler for left map
-    map.on('move', () => {
-      if (!isSyncEnabledRef.current || isSyncingRef.current || !rightMapRef.current) return;
+    // Set up sync handler for left map (only for user interactions)
+    map.on('moveend', () => {
+      if (!isSyncEnabledRef.current || isSyncingRef.current || isProgrammaticMoveRef.current || !rightMapRef.current) return;
       isSyncingRef.current = true;
-      rightMapRef.current.setCenter(map.getCenter());
-      rightMapRef.current.setZoom(map.getZoom());
-      rightMapRef.current.setBearing(map.getBearing());
-      rightMapRef.current.setPitch(map.getPitch());
+      rightMapRef.current.jumpTo({
+        center: map.getCenter(),
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch()
+      });
       isSyncingRef.current = false;
     });
   };
@@ -359,14 +366,16 @@ export function MapDashboard() {
       loadElectionResultsForMap(map, rightElection, rightDrillDown.currentLevel, rightDrillDown.currentParentId, true);
     }
 
-    // Set up sync handler for right map
-    map.on('move', () => {
-      if (!isSyncEnabledRef.current || isSyncingRef.current || !mapRef.current) return;
+    // Set up sync handler for right map (only for user interactions)
+    map.on('moveend', () => {
+      if (!isSyncEnabledRef.current || isSyncingRef.current || isProgrammaticMoveRef.current || !mapRef.current) return;
       isSyncingRef.current = true;
-      mapRef.current.setCenter(map.getCenter());
-      mapRef.current.setZoom(map.getZoom());
-      mapRef.current.setBearing(map.getBearing());
-      mapRef.current.setPitch(map.getPitch());
+      mapRef.current.jumpTo({
+        center: map.getCenter(),
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch()
+      });
       isSyncingRef.current = false;
     });
   };
@@ -463,12 +472,14 @@ export function MapDashboard() {
         });
       }
 
-      // Fit bounds
+      // Fit bounds - disable sync during programmatic fitBounds
       if (data.bbox && data.bbox.length === 4) {
+        isProgrammaticMoveRef.current = true;
         map.fitBounds(
           [[data.bbox[0], data.bbox[1]], [data.bbox[2], data.bbox[3]]],
           { padding: 50 }
         );
+        setTimeout(() => { isProgrammaticMoveRef.current = false; }, 500);
       }
     } catch (err) {
       console.error('Error loading map data:', err);
