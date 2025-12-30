@@ -223,6 +223,188 @@ This document contains test cases for verifying feature functionality. Use this 
 
 ---
 
+### Touch-Screen Optimization (BCAST-002)
+
+**Test ID:** TEST-004
+**Date Added:** 2024-12-30
+**Status:** Not Tested
+
+**Prerequisites:**
+- Application running at http://localhost:5173
+- Access from a touch-enabled device (tablet, touch-screen monitor, or mobile)
+- User logged in
+- Election with results in database
+
+#### Test Case 4.1: Gesture Tutorial Auto-Show
+
+**Test Steps:**
+1. Clear browser localStorage (DevTools > Application > Storage > Clear site data)
+2. Navigate to Electoral Map on a touch device
+3. Select an election
+
+**Expected Results:**
+- Gesture tutorial overlay appears automatically
+- Shows "Touch Gestures" title
+- Displays first gesture (Drag to Pan) with animated icon
+- Page indicators (dots) at bottom show 6 pages
+- "Next" and close buttons visible
+
+---
+
+#### Test Case 4.2: Gesture Tutorial Navigation
+
+**Test Steps:**
+1. Open gesture tutorial (Test 4.1 or tap help button)
+2. Tap "Next" button
+3. Swipe left on the tutorial card
+4. Tap on different page indicator dots
+5. Navigate to last page
+6. Tap "Got it!" button
+
+**Expected Results:**
+- Each page shows different gesture (Pan, Pinch, Rotate, Tilt, Double-Tap, Tap)
+- Swipe left/right navigates between pages
+- Tapping dots jumps to that page
+- "Got it!" button dismisses tutorial
+- Tutorial doesn't appear again on subsequent visits
+
+---
+
+#### Test Case 4.3: Touch Gesture Visual Feedback
+
+**Test Steps:**
+1. Navigate to Electoral Map on touch device
+2. Place one finger on map and drag
+3. Place two fingers on map and pinch
+4. Place two fingers and twist (rotate)
+5. Place two fingers and drag up/down (tilt)
+
+**Expected Results:**
+- Single finger drag: Blue circle appears at touch point, "Panning" label shows at bottom
+- Pinch gesture: Two blue circles appear, dashed line connects them, "Zooming in/out" label
+- Rotate gesture: Two circles + center point, "Rotating clockwise/counter-clockwise" label
+- Tilt gesture: Two circles moving vertically, "Tilting view" label
+- All indicators fade out ~300ms after gesture ends
+
+---
+
+#### Test Case 4.4: Presentation Mode Touch Controls
+
+**Test Steps:**
+1. Navigate to Electoral Map, select election
+2. Tap "Present" button (or press F11)
+3. Wait for presentation mode to activate
+4. Tap anywhere on the screen
+5. Observe the control panel at bottom
+
+**Expected Results:**
+- Presentation mode enters fullscreen
+- Thin edge indicators visible on left, right, top edges
+- Tapping screen reveals control panel at bottom
+- Control panel shows: election name, current level, navigation buttons
+- Panel auto-hides after ~4 seconds
+
+---
+
+#### Test Case 4.5: Presentation Mode Edge Swipe
+
+**Test Steps:**
+1. Enter presentation mode
+2. Touch the left edge of screen and swipe right
+3. Touch the right edge and swipe left
+4. Touch the top edge and swipe down
+
+**Expected Results:**
+- Edge swipe from left/right/top reveals control panel
+- Blue gradient shows during edge touch
+- Control panel appears with navigation options
+
+---
+
+#### Test Case 4.6: Swipe Navigation in Presentation Mode
+
+**Test Steps:**
+1. Enter presentation mode with election at district level
+2. Drill down to a constituency (tap on a district)
+3. Swipe right (from center of screen)
+4. Swipe up
+5. Swipe down
+
+**Expected Results:**
+- Swipe right: Goes back one level (shows "Go Back" indicator during swipe)
+- Swipe up: Switches to next election (shows "Next Election" indicator)
+- Swipe down: Switches to previous election (shows "Previous Election" indicator)
+- Visual feedback shows swipe direction and progress
+
+---
+
+#### Test Case 4.7: Presentation Controls Panel Features
+
+**Test Steps:**
+1. Enter presentation mode
+2. Tap to reveal controls
+3. Test each button:
+   - Left/Right arrows (level navigation)
+   - Up/Down arrows (election navigation)
+   - Grid icon (dashboard toggle)
+   - Question mark icon (help)
+   - X icon (exit presentation)
+
+**Expected Results:**
+- Left arrow: Goes back one level (disabled at top level)
+- Right arrow: Disabled (drill-down via map tap)
+- Up/Down arrows: Cycle through elections
+- Grid icon: Toggles between map and dashboard view
+- Question mark: Opens gesture tutorial
+- X icon: Exits presentation mode
+
+---
+
+#### Test Case 4.8: Touch-Friendly Popups
+
+**Test Steps:**
+1. On touch device, navigate to Electoral Map
+2. Drill down to parish level
+3. Tap on a parish to open results popup
+4. Attempt to tap the close button (X)
+
+**Expected Results:**
+- Popup has adequate padding (16px+)
+- Close button is large (44px+ touch target)
+- Close button has visible background on touch devices
+- Easy to dismiss popup with one tap
+
+---
+
+#### Test Case 4.9: Help Button Visibility
+
+**Test Steps:**
+1. On touch device, navigate to Electoral Map
+2. Look for help button in bottom-right corner
+3. Tap the help button
+
+**Expected Results:**
+- Help button (question mark in circle) visible on touch devices
+- Button is 56px diameter (easy to tap)
+- Tapping opens gesture tutorial
+- Button hidden on non-touch devices (desktop)
+
+---
+
+#### Test Case 4.10: Map Touch Controls
+
+**Test Steps:**
+1. On touch device, view the map
+2. Look at zoom controls (top-right)
+3. Attempt to tap zoom +/- buttons
+
+**Expected Results:**
+- Zoom buttons are 52px on touch devices (larger than desktop)
+- Easy to tap without accidental presses
+- Proper spacing between buttons
+
+---
+
 ## Test Execution Log
 
 | Date | Tester | Test ID | Result | Notes |

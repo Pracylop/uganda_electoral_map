@@ -462,6 +462,7 @@ async function main() {
 
     // Import Directly Elected MPs
     const directlyElectedFiles = [
+      '11_a_2006_mps_directly_elected.csv',
       '8_a_2011_mps_directly_elected.csv',
       '7_a_2016_mps_directly_elected.csv',
       '6_a_2021_mps_directly_elected.csv',
@@ -478,6 +479,7 @@ async function main() {
 
     // Import District Woman Representatives
     const womanMPFiles = [
+      '11_b_2006_mps_district_woman.csv',
       '8_b_2011_mps_district_woman.csv',
       '7_b_2016_mps_district_woman.csv',
       '6_b_2021_mps_district_woman.csv',

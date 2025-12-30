@@ -139,3 +139,146 @@ button, select, a, .maplibregl-popup {
   font-size: 20px !important;
   padding: 8px !important;
 }
+
+/* Touch-friendly popup enhancements */
+@media (pointer: coarse) {
+  .maplibregl-popup-content {
+    padding: 16px !important;
+    min-width: 280px !important;
+  }
+
+  .maplibregl-popup-close-button {
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 28px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: rgba(0, 0, 0, 0.1) !important;
+    border-radius: 50% !important;
+    margin: 4px !important;
+  }
+
+  .maplibregl-popup-close-button:hover {
+    background: rgba(0, 0, 0, 0.2) !important;
+  }
+}
+
+/* Gesture indicator animations */
+@keyframes ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@keyframes touchPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+.touch-ripple {
+  animation: ripple 0.6s ease-out forwards;
+}
+
+.touch-pulse {
+  animation: touchPulse 1s ease-in-out infinite;
+}
+
+/* Edge swipe indicators */
+.edge-indicator {
+  transition: opacity 0.2s ease-out, width 0.2s ease-out;
+}
+
+.edge-indicator-active {
+  opacity: 1 !important;
+  width: 60px !important;
+}
+
+/* Swipe feedback */
+@keyframes swipeHint {
+  0%, 100% {
+    transform: translateX(0);
+    opacity: 0.3;
+  }
+  50% {
+    transform: translateX(10px);
+    opacity: 0.6;
+  }
+}
+
+.swipe-hint-left {
+  animation: swipeHint 2s ease-in-out infinite;
+}
+
+.swipe-hint-right {
+  animation: swipeHint 2s ease-in-out infinite reverse;
+}
+
+/* Presentation mode touch controls */
+.presentation-controls-enter {
+  animation: slideUp 0.3s ease-out forwards;
+}
+
+.presentation-controls-exit {
+  animation: slideDown 0.3s ease-in forwards;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateX(-50%) translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-50%) translateY(100%);
+    opacity: 0;
+  }
+}
+
+/* Large touch-friendly buttons for controls */
+.touch-button {
+  min-width: 56px;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  transition: all 0.15s ease-out;
+}
+
+.touch-button:active {
+  transform: scale(0.95);
+  opacity: 0.8;
+}
+
+/* Prevent text selection on touch devices */
+@media (pointer: coarse) {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button, a, [role="button"] {
+    touch-action: manipulation;
+  }
+}

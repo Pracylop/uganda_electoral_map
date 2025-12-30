@@ -3,6 +3,10 @@ import { useSearchParams } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import Map from '../components/Map';
 import NationalDashboard from '../components/NationalDashboard';
+import { GestureTutorial, useGestureTutorial } from '../components/GestureTutorial';
+import { GestureIndicator } from '../components/GestureIndicator';
+import { PresentationControls } from '../components/PresentationControls';
+import { useSwipeNavigation, SwipeIndicator } from '../hooks/useSwipeNavigation';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useElectionsWithOffline } from '../hooks/useElectionData';
 import { invalidateElectionQueries } from '../lib/queryClient';
@@ -59,7 +63,7 @@ function usePresentationMode() {
     };
   }, [isPresentationMode, togglePresentationMode]);
 
-  return { isPresentationMode, setIsPresentationMode, togglePresentationMode };
+  return { isPresentationMode, setIsPresentationMode, togglePresentationMode } as const;
 }
 
 // Election type from API
@@ -89,7 +93,13 @@ export function MapDashboard() {
   const elections: Election[] = electionsData ?? [];
 
   // Presentation mode for TV broadcast
-  const { isPresentationMode, togglePresentationMode } = usePresentationMode();
+  const { isPresentationMode, togglePresentationMode, setIsPresentationMode } = usePresentationMode();
+
+  // Touch gesture tutorial
+  const { showTutorial, dismissTutorial, openTutorial } = useGestureTutorial();
+
+  // Map container ref for gesture indicator
+  const mapContainerRef = useRef<HTMLDivElement>(null);
 
   // Drill-down state (left map / single map)
   const [drillDown, setDrillDown] = useState<DrillDownState>(INITIAL_DRILL_DOWN);
@@ -422,6 +432,45 @@ export function MapDashboard() {
       }
     }
   };
+
+  // Go back one level (for swipe navigation)
+  const goBackOneLevel = useCallback(() => {
+    if (drillDown.breadcrumb.length > 1) {
+      const parentItem = drillDown.breadcrumb[drillDown.breadcrumb.length - 2];
+      handleBreadcrumbClick(parentItem);
+    } else {
+      // Already at top level, reset to initial
+      setDrillDown(INITIAL_DRILL_DOWN);
+      if (isSyncEnabledRef.current) {
+        setRightDrillDown(INITIAL_DRILL_DOWN);
+      }
+    }
+  }, [drillDown.breadcrumb]);
+
+  // Navigate to next/previous election (for swipe navigation)
+  const navigateElection = useCallback((direction: 'next' | 'prev') => {
+    if (!selectedElection || elections.length === 0) return;
+    const currentIndex = elections.findIndex(e => e.id === selectedElection);
+    if (currentIndex === -1) return;
+
+    let newIndex: number;
+    if (direction === 'next') {
+      newIndex = currentIndex < elections.length - 1 ? currentIndex + 1 : 0;
+    } else {
+      newIndex = currentIndex > 0 ? currentIndex - 1 : elections.length - 1;
+    }
+
+    handleElectionChange(elections[newIndex].id);
+  }, [selectedElection, elections]);
+
+  // Swipe navigation - enable in presentation mode for touch gestures
+  const swipeState = useSwipeNavigation({
+    enabled: isPresentationMode && viewMode === 'map',
+    onSwipeRight: goBackOneLevel,  // Swipe right = go back
+    onSwipeUp: () => navigateElection('next'),
+    onSwipeDown: () => navigateElection('prev'),
+    swipeThreshold: 100,
+  });
 
   const handleMapLoad = useCallback((map: maplibregl.Map) => {
     mapRef.current = map;
@@ -954,7 +1003,7 @@ export function MapDashboard() {
               </div>
             )}
 
-            <div className={`absolute inset-0 flex ${isComparisonMode ? 'gap-1' : ''}`}>
+            <div ref={mapContainerRef} className={`absolute inset-0 flex ${isComparisonMode ? 'gap-1' : ''}`}>
               {/* Left Map Panel */}
             <div className={`relative ${isComparisonMode ? 'w-1/2' : 'w-full'}`}>
               <Map key="left-map" onLoad={handleMapLoad} className="absolute inset-0" />
@@ -1121,6 +1170,62 @@ export function MapDashboard() {
           </>
         )}
       </div>
+
+      {/* Touch Gesture Components - Map specific */}
+      {viewMode === 'map' && (
+        <>
+          {/* Gesture Tutorial Overlay */}
+          <GestureTutorial isVisible={showTutorial} onDismiss={dismissTutorial} />
+
+          {/* Gesture Visual Indicator */}
+          <GestureIndicator
+            containerRef={mapContainerRef}
+            enabled={!showTutorial}
+          />
+
+          {/* Swipe Navigation Indicator */}
+          <SwipeIndicator
+            direction={swipeState.direction}
+            progress={swipeState.progress}
+            isEdgeSwipe={swipeState.isEdgeSwipe}
+            labels={{
+              left: 'Drill Down',
+              right: 'Go Back',
+              up: 'Next Election',
+              down: 'Previous Election'
+            }}
+          />
+        </>
+      )}
+
+      {/* Presentation Mode Touch Controls - works in both map and dashboard */}
+      <PresentationControls
+        isPresentationMode={isPresentationMode}
+        onExitPresentation={() => setIsPresentationMode(false)}
+        onPreviousLevel={viewMode === 'map' && drillDown.breadcrumb.length > 1 ? goBackOneLevel : undefined}
+        onNextLevel={undefined}  // Drill-down is via tap, not button
+        onPreviousElection={() => navigateElection('prev')}
+        onNextElection={() => navigateElection('next')}
+        onToggleDashboard={() => setViewMode(viewMode === 'map' ? 'dashboard' : 'map')}
+        onShowHelp={openTutorial}
+        currentLevel={viewMode === 'map' ? LEVEL_NAMES[drillDown.currentLevel] : 'Dashboard'}
+        currentElection={elections.find(e => e.id === selectedElection)?.name}
+        showDashboard={viewMode === 'dashboard'}
+      />
+
+      {/* Help Button - visible when not in presentation mode (touch devices) */}
+      {!isPresentationMode && viewMode === 'map' && (
+        <button
+          onClick={openTutorial}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-gray-800 hover:bg-gray-700 rounded-full shadow-lg flex items-center justify-center text-white z-30 transition-colors md:hidden"
+          title="Touch Gestures Help"
+          style={{ display: 'ontouchstart' in window ? 'flex' : 'none' }}
+        >
+          <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
