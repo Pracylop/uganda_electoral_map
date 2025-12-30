@@ -502,4 +502,96 @@ export const api = {
       topDistricts: Array<{ district: string; districtId: number | null; count: number }>;
     }>(`/api/issues/stats${query}`);
   },
+
+  // Polling Station endpoints
+  getPollingStations: (params?: {
+    districtId?: number;
+    constituencyId?: number;
+    subcountyId?: number;
+    parishId?: number;
+    electionId?: number;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.districtId) searchParams.append('districtId', params.districtId.toString());
+    if (params?.constituencyId) searchParams.append('constituencyId', params.constituencyId.toString());
+    if (params?.subcountyId) searchParams.append('subcountyId', params.subcountyId.toString());
+    if (params?.parishId) searchParams.append('parishId', params.parishId.toString());
+    if (params?.electionId) searchParams.append('electionId', params.electionId.toString());
+    if (params?.limit) searchParams.append('limit', params.limit.toString());
+    if (params?.offset) searchParams.append('offset', params.offset.toString());
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest<{
+      stations: Array<{
+        id: number;
+        code: string;
+        name: string;
+        parish: {
+          id: number;
+          name: string;
+          parent: {
+            id: number;
+            name: string;
+            parent: {
+              id: number;
+              name: string;
+              parent: { id: number; name: string } | null;
+            } | null;
+          } | null;
+        };
+        electionData: Array<{
+          electionId: number;
+          totalVoters: number;
+          election: { name: string; year: number };
+        }>;
+      }>;
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/api/polling-stations${query}`);
+  },
+
+  getPollingStationsGeoJSON: (params?: {
+    districtId?: number;
+    electionId?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.districtId) searchParams.append('districtId', params.districtId.toString());
+    if (params?.electionId) searchParams.append('electionId', params.electionId.toString());
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest<{
+      type: 'FeatureCollection';
+      features: Array<{
+        type: 'Feature';
+        geometry: { type: 'Point'; coordinates: [number, number] };
+        properties: {
+          parishId: number;
+          parishName: string;
+          subcounty: string | null;
+          constituency: string | null;
+          district: string | null;
+          stationCount: number;
+          totalVoters: number;
+          stations: Array<{ id: number; name: string; code: string }>;
+        };
+      }>;
+    }>(`/api/polling-stations/geojson${query}`);
+  },
+
+  getPollingStationStats: (electionId?: number) => {
+    const query = electionId ? `?electionId=${electionId}` : '';
+    return apiRequest<{
+      totalStations: number;
+      totalElectionData: number;
+      byElection: Array<{
+        electionId: number;
+        electionName: string;
+        year: number;
+        stationCount: number;
+        totalVoters: number;
+      }>;
+      topDistricts: Array<{ district: string; districtId: number; count: number }>;
+    }>(`/api/polling-stations/stats${query}`);
+  },
 };

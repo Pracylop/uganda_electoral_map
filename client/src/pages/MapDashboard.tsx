@@ -7,6 +7,7 @@ import { GestureTutorial, useGestureTutorial } from '../components/GestureTutori
 import { GestureIndicator } from '../components/GestureIndicator';
 import { PresentationControls } from '../components/PresentationControls';
 import { IncidentsLayer, IncidentsFilterPanel } from '../components/IncidentsLayer';
+import { PollingStationsLayer, PollingStationsFilterPanel } from '../components/PollingStationsLayer';
 import { useSwipeNavigation, SwipeIndicator } from '../hooks/useSwipeNavigation';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useElectionsWithOffline } from '../hooks/useElectionData';
@@ -129,6 +130,9 @@ export function MapDashboard() {
     severity: number;
   }>>([]);
   const [selectedIncidentCategory, setSelectedIncidentCategory] = useState<number | null>(null);
+
+  // Polling stations layer state
+  const [showPollingStations, setShowPollingStations] = useState(false);
 
   // WebSocket connection for real-time updates
   useWebSocket((message) => {
@@ -1114,9 +1118,20 @@ export function MapDashboard() {
                 }}
               />
 
-              {/* Incidents Filter Panel - Bottom Right */}
+              {/* Polling Stations Layer */}
+              <PollingStationsLayer
+                map={mapRef.current}
+                visible={showPollingStations && !isComparisonMode}
+                electionId={selectedElection ?? undefined}
+              />
+
+              {/* Layer Filter Panels - Bottom Right */}
               {!isPresentationMode && !isComparisonMode && (
-                <div className="absolute bottom-6 right-6 z-10">
+                <div className="absolute bottom-6 right-6 z-10 flex flex-col gap-2">
+                  <PollingStationsFilterPanel
+                    visible={showPollingStations}
+                    onVisibilityChange={setShowPollingStations}
+                  />
                   <IncidentsFilterPanel
                     categories={incidentCategories}
                     selectedCategory={selectedIncidentCategory}
