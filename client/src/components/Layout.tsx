@@ -44,6 +44,18 @@ export function Layout({ children }: LayoutProps) {
             >
               Electoral Map
             </Link>
+            <Link
+              to="/demographics"
+              className="px-3 py-2 rounded-md hover:bg-gray-700 transition-colors"
+            >
+              Demographics
+            </Link>
+            <Link
+              to="/issues"
+              className="px-3 py-2 rounded-md hover:bg-gray-700 transition-colors"
+            >
+              Issues
+            </Link>
             {(user?.role === 'editor' || user?.role === 'admin') && (
               <Link
                 to="/approval-queue"

@@ -6,14 +6,10 @@ import NationalDashboard from '../components/NationalDashboard';
 import { GestureTutorial, useGestureTutorial } from '../components/GestureTutorial';
 import { GestureIndicator } from '../components/GestureIndicator';
 import { PresentationControls } from '../components/PresentationControls';
-import { IncidentsLayer, IncidentsFilterPanel } from '../components/IncidentsLayer';
-import { PollingStationsLayer, PollingStationsFilterPanel } from '../components/PollingStationsLayer';
-import { DemographicsLayer, DemographicsFilterPanel } from '../components/DemographicsLayer';
 import { useSwipeNavigation, SwipeIndicator } from '../hooks/useSwipeNavigation';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useElectionsWithOffline } from '../hooks/useElectionData';
 import { invalidateElectionQueries } from '../lib/queryClient';
-import { api } from '../lib/api';
 import type { DrillDownState, BreadcrumbItem } from '../hooks/useElectionMap';
 import {
   LEVEL_NAMES,
@@ -121,27 +117,6 @@ export function MapDashboard() {
   const isSyncEnabledRef = useRef(true); // Ref for closure access
   const isProgrammaticMoveRef = useRef(false); // Disable sync during fitBounds
 
-  // Electoral incidents layer state
-  const [showIncidents, setShowIncidents] = useState(false);
-  const [incidentCategories, setIncidentCategories] = useState<Array<{
-    id: number;
-    name: string;
-    code: string;
-    color: string | null;
-    severity: number;
-  }>>([]);
-  const [selectedIncidentCategory, setSelectedIncidentCategory] = useState<number | null>(null);
-
-  // Polling stations layer state
-  const [showPollingStations, setShowPollingStations] = useState(false);
-
-  // Demographics layer state
-  const [showDemographics, setShowDemographics] = useState(false);
-  const [demographicMetric, setDemographicMetric] = useState<'population' | 'votingAge' | 'votingAgePercent'>('population');
-  const [nationalDemographicsStats, setNationalDemographicsStats] = useState<{
-    totalPopulation: number;
-    votingAgePopulation: number;
-  } | undefined>(undefined);
 
   // WebSocket connection for real-time updates
   useWebSocket((message) => {
@@ -155,27 +130,6 @@ export function MapDashboard() {
       }
     }
   });
-
-  // Load incident categories on mount
-  useEffect(() => {
-    api.getIssueCategories()
-      .then(setIncidentCategories)
-      .catch((err) => console.error('Failed to load incident categories:', err));
-  }, []);
-
-  // Load demographics stats when layer is enabled
-  useEffect(() => {
-    if (showDemographics && !nationalDemographicsStats) {
-      api.getDemographicsStats()
-        .then((data) => {
-          setNationalDemographicsStats({
-            totalPopulation: data.national.totalPopulation,
-            votingAgePopulation: data.national.votingAgePopulation,
-          });
-        })
-        .catch((err) => console.error('Failed to load demographics stats:', err));
-    }
-  }, [showDemographics, nationalDemographicsStats]);
 
   useEffect(() => {
     const electionId = searchParams.get('election');
@@ -1132,53 +1086,6 @@ export function MapDashboard() {
                 </div>
               )}
 
-              {/* Demographics Layer (rendered first to be behind other layers) */}
-              <DemographicsLayer
-                map={mapRef.current}
-                visible={showDemographics && !isComparisonMode}
-                level={2}
-                metric={demographicMetric}
-              />
-
-              {/* Electoral Incidents Layer */}
-              <IncidentsLayer
-                map={mapRef.current}
-                visible={showIncidents && !isComparisonMode}
-                filters={{
-                  categoryId: selectedIncidentCategory ?? undefined,
-                }}
-              />
-
-              {/* Polling Stations Layer */}
-              <PollingStationsLayer
-                map={mapRef.current}
-                visible={showPollingStations && !isComparisonMode}
-                electionId={selectedElection ?? undefined}
-              />
-
-              {/* Layer Filter Panels - Bottom Right */}
-              {!isPresentationMode && !isComparisonMode && (
-                <div className="absolute bottom-6 right-6 z-10 flex flex-col gap-2">
-                  <PollingStationsFilterPanel
-                    visible={showPollingStations}
-                    onVisibilityChange={setShowPollingStations}
-                  />
-                  <IncidentsFilterPanel
-                    categories={incidentCategories}
-                    selectedCategory={selectedIncidentCategory}
-                    onCategoryChange={setSelectedIncidentCategory}
-                    visible={showIncidents}
-                    onVisibilityChange={setShowIncidents}
-                  />
-                  <DemographicsFilterPanel
-                    visible={showDemographics}
-                    onVisibilityChange={setShowDemographics}
-                    metric={demographicMetric}
-                    onMetricChange={setDemographicMetric}
-                    nationalStats={nationalDemographicsStats}
-                  />
-                </div>
-              )}
             </div>
 
             {/* Right Map Panel (Comparison Mode) */}

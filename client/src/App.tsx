@@ -8,6 +8,8 @@ import { ElectionCandidates } from './pages/ElectionCandidates';
 import { ResultsEntry } from './pages/ResultsEntry';
 import { ApprovalQueue } from './pages/ApprovalQueue';
 import { MapDashboard } from './pages/MapDashboard';
+import { DemographicsDashboard } from './pages/DemographicsDashboard';
+import { IssuesDashboard } from './pages/IssuesDashboard';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
 import './App.css';
@@ -93,6 +95,26 @@ function App() {
             <ProtectedRoute>
               <Layout>
                 <MapDashboard />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/demographics"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <DemographicsDashboard />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/issues"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <IssuesDashboard />
               </Layout>
             </ProtectedRoute>
           }
