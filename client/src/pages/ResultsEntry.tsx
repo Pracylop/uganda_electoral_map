@@ -4,16 +4,20 @@ import { api } from '../lib/api';
 
 interface Candidate {
   id: number;
-  name: string;
-  party: string;
-  partyColor: string | null;
+  person: { fullName: string };
+  party: { name: string; abbreviation: string; color: string } | null;
+  electoralAreaId: number | null;
+  isIndependent: boolean;
 }
 
 interface Election {
   id: number;
   name: string;
   electionDate: string;
+  electionType: { id: number; name: string; code: string; electoralLevel: number };
+  isActive: boolean;
   candidates: Candidate[];
+  _count: { results: number };
 }
 
 export function ResultsEntry() {
@@ -169,17 +173,17 @@ export function ResultsEntry() {
                   className="flex items-center justify-between p-4 bg-gray-700 rounded-md"
                 >
                   <div className="flex items-center flex-1">
-                    {candidate.partyColor && (
+                    {candidate.party?.color && (
                       <div
                         className="w-6 h-6 rounded mr-3"
                         style={{
-                          backgroundColor: candidate.partyColor,
+                          backgroundColor: candidate.party.color,
                         }}
                       />
                     )}
                     <div>
-                      <p className="font-semibold">{candidate.name}</p>
-                      <p className="text-sm text-gray-400">{candidate.party}</p>
+                      <p className="font-semibold">{candidate.person.fullName}</p>
+                      <p className="text-sm text-gray-400">{candidate.party?.name || 'Independent'}</p>
                     </div>
                   </div>
                   <div className="w-32">

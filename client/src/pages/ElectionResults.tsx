@@ -204,7 +204,7 @@ export function ElectionResults() {
           <h1 className="text-3xl font-bold mb-2">{election.name}</h1>
           <p className="text-gray-400">
             {new Date(election.electionDate).toLocaleDateString()} •{' '}
-            {election.electionType?.name || election.electionType}
+            {election.electionType?.name || 'Unknown'}
           </p>
         </div>
 

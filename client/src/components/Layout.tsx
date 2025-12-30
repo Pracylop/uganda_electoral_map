@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import { ConnectionIndicator } from './ConnectionIndicator';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -59,8 +60,9 @@ export function Layout({ children }: LayoutProps) {
                 User Management
               </Link>
             )}
-            <div className="border-l border-gray-700 pl-4 ml-4">
-              <span className="text-sm text-gray-400 mr-3">
+            <div className="border-l border-gray-700 pl-4 ml-4 flex items-center gap-4">
+              <ConnectionIndicator />
+              <span className="text-sm text-gray-400">
                 {user?.fullName} ({user?.role})
               </span>
               <button

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 
 interface Election {
   id: number;
   name: string;
-  year: number;
+  year?: number;
   electionDate: string;
   electionType: { name: string; code: string; electoralLevel: number };
   electionTypeName?: string;
@@ -39,7 +39,6 @@ const TYPE_COLORS: Record<string, { bg: string; text: string; border: string }> 
 const getTypeColors = (code: string) => TYPE_COLORS[code] || { bg: 'bg-gray-700', text: 'text-gray-200', border: 'border-gray-500' };
 
 export function Elections() {
-  const navigate = useNavigate();
   const [elections, setElections] = useState<Election[]>([]);
   const [electionTypes, setElectionTypes] = useState<ElectionType[]>([]);
   const [isLoading, setIsLoading] = useState(true);

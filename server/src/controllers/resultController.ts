@@ -612,6 +612,11 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
       electionId,
       electionName: election.name,
       electionDate: election.electionDate,
+      electionType: {
+        code: election.electionType.code,
+        name: election.electionType.name,
+        electoralLevel: election.electionType.electoralLevel
+      },
       totalVotesCast,
       totalRegisteredVoters,
       turnoutPercentage: parseFloat(turnoutPercentage.toFixed(2)),

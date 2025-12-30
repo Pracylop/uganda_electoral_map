@@ -35,6 +35,20 @@ function normalizeText(text: string): string {
   return text?.toUpperCase().trim() || '';
 }
 
+// Name mappings for districts with spelling variations between CSV and database
+const DISTRICT_NAME_MAPPINGS: Record<string, string> = {
+  'LUWERO': 'LUWEERO',         // CSV uses LUWERO, DB uses LUWEERO
+  'SEMBABULE': 'SSEMBABULE',   // Alternative spelling
+  'KABONG': 'KAABONG',         // Alternative spelling
+  'FORT PORTAL': 'FORT PORTAL CITY', // City suffix
+};
+
+// Apply name mappings to normalize district names
+function normalizeDistrictName(name: string): string {
+  const normalized = normalizeText(name);
+  return DISTRICT_NAME_MAPPINGS[normalized] || normalized;
+}
+
 async function getOrCreatePerson(fullName: string): Promise<number> {
   let person = await prisma.person.findFirst({
     where: { fullName },
@@ -303,11 +317,12 @@ async function importDistrictWomanMPs(
     return '';
   };
 
-  // Group rows by year and district
+  // Group rows by year and district (using normalized names)
   const rowsByYearDistrict = new Map<string, CsvRow[]>();
   for (const row of rows) {
     const year = row['Year'];
-    const districtName = normalizeText(getCol(row, 'District', 'District.Name'));
+    const rawDistrictName = getCol(row, 'District', 'District.Name');
+    const districtName = normalizeDistrictName(rawDistrictName);
     const key = `${year}-${districtName}`;
     if (!rowsByYearDistrict.has(key)) {
       rowsByYearDistrict.set(key, []);
@@ -321,7 +336,8 @@ async function importDistrictWomanMPs(
 
   for (const [key, districtRows] of rowsByYearDistrict) {
     const year = parseInt(districtRows[0]['Year']);
-    const districtName = normalizeText(getCol(districtRows[0], 'District', 'District.Name'));
+    const rawDistrictName = getCol(districtRows[0], 'District', 'District.Name');
+    const districtName = normalizeDistrictName(rawDistrictName);
 
     const districtId = districtMap.get(districtName);
     if (!districtId) {

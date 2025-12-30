@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import LiveTotals from './LiveTotals';
 import CandidateBar from './CandidateBar';
 import ProgressIndicator from './ProgressIndicator';
+import { useNationalTotals, usePartySummary } from '../hooks/useElectionData';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { invalidateElectionQueries } from '../lib/queryClient';
 import '../dashboard.css';
 
 interface CandidateResult {
@@ -13,26 +16,13 @@ interface CandidateResult {
   percentage: number;
 }
 
-interface Winner {
-  candidateId: number;
-  candidateName: string;
-  party: string;
-  totalVotes: number;
+interface PartySummary {
+  partyId: number | null;
+  partyName: string;
+  abbreviation: string;
+  color: string;
+  seatsWon: number;
   percentage: number;
-}
-
-interface NationalTotalsData {
-  electionId: number;
-  electionName: string;
-  electionDate: string;
-  totalVotesCast: number;
-  totalRegisteredVoters: number;
-  turnoutPercentage: number;
-  reportingAreas: number;
-  totalAreas: number;
-  reportingPercentage: number;
-  candidateResults: CandidateResult[];
-  winner: Winner | null;
 }
 
 interface NationalDashboardProps {
@@ -41,63 +31,35 @@ interface NationalDashboardProps {
 }
 
 const NationalDashboard: React.FC<NationalDashboardProps> = ({ electionId, onClose }) => {
-  const [data, setData] = useState<NationalTotalsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Use React Query hooks with offline support
+  const {
+    data,
+    isLoading: loading,
+    error: queryError
+  } = useNationalTotals(electionId);
 
-  const fetchNationalTotals = async () => {
-    try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch(`http://localhost:3000/api/results/national/${electionId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+  // Determine if we need party summary (for MP elections)
+  const isMPElection = data?.electionType && data.electionType.electoralLevel >= 2;
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch national totals');
-      }
+  // Fetch party summary for MP elections
+  const { data: partySummary } = usePartySummary(
+    electionId,
+    null,
+    isMPElection
+  );
 
-      const totals = await response.json();
-      setData(totals);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching national totals:', err);
-      setError('Failed to load national totals');
-    } finally {
-      setLoading(false);
+  // WebSocket for real-time updates (uses shared connection with exponential backoff)
+  useWebSocket((message) => {
+    if (message.type === 'NATIONAL_TOTALS_UPDATED' && message.payload?.electionId === electionId) {
+      // Invalidate React Query cache to trigger refetch
+      invalidateElectionQueries(electionId);
     }
-  };
+    if (message.type === 'RESULT_APPROVED' && message.payload?.electionId === electionId) {
+      invalidateElectionQueries(electionId);
+    }
+  });
 
-  useEffect(() => {
-    fetchNationalTotals();
-
-    // Set up WebSocket listener for real-time updates
-    const ws = new WebSocket('ws://localhost:3001');
-
-    ws.onopen = () => {
-      // Authenticate WebSocket connection
-      const token = localStorage.getItem('auth_token');
-      ws.send(JSON.stringify({ type: 'AUTH', token }));
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-
-        // Refresh totals when national totals are updated
-        if (message.type === 'NATIONAL_TOTALS_UPDATED' && message.payload.electionId === electionId) {
-          fetchNationalTotals();
-        }
-      } catch (err) {
-        console.error('WebSocket message error:', err);
-      }
-    };
-
-    return () => {
-      ws.close();
-    };
-  }, [electionId]);
+  const error = queryError ? (queryError as Error).message : null;
 
   if (loading) {
     return (
@@ -115,6 +77,8 @@ const NationalDashboard: React.FC<NationalDashboardProps> = ({ electionId, onClo
       </div>
     );
   }
+
+  const winningParty = partySummary?.partySummary?.[0];
 
   return (
     <div className="national-dashboard">
@@ -139,7 +103,8 @@ const NationalDashboard: React.FC<NationalDashboardProps> = ({ electionId, onClo
         </div>
       </header>
 
-      {data.winner && (
+      {/* Presidential Election: Show Winner */}
+      {!isMPElection && data.winner && (
         <div className="winner-announcement">
           <div className="winner-badge">PROJECTED WINNER</div>
           <h2>{data.winner.candidateName}</h2>
@@ -150,13 +115,46 @@ const NationalDashboard: React.FC<NationalDashboardProps> = ({ electionId, onClo
         </div>
       )}
 
+      {/* MP Election: Show Leading Party */}
+      {isMPElection && winningParty && (
+        <div className="winner-announcement" style={{
+          background: `linear-gradient(135deg, ${winningParty.color}dd 0%, ${winningParty.color}99 100%)`
+        }}>
+          <div className="winner-badge">LEADING PARTY</div>
+          <h2>{winningParty.partyName}</h2>
+          <p className="winner-party">{winningParty.abbreviation}</p>
+          <p className="winner-votes">
+            {winningParty.seatsWon} seats ({winningParty.percentage.toFixed(1)}%)
+          </p>
+        </div>
+      )}
+
       <div className="dashboard-grid">
         <div className="totals-section">
-          <LiveTotals
-            totalVotesCast={data.totalVotesCast}
-            totalRegisteredVoters={data.totalRegisteredVoters}
-            turnoutPercentage={data.turnoutPercentage}
-          />
+          {isMPElection && partySummary ? (
+            // MP Elections: Show seats summary
+            <div className="live-totals">
+              <div className="total-card votes-cast">
+                <div className="card-label">Total Seats</div>
+                <div className="card-value">{partySummary.totalSeats}</div>
+              </div>
+              <div className="total-card registered-voters">
+                <div className="card-label">Parties Represented</div>
+                <div className="card-value">{partySummary.partySummary.length}</div>
+              </div>
+              <div className="total-card turnout">
+                <div className="card-label">Areas Reporting</div>
+                <div className="card-value">{data.reportingAreas}</div>
+              </div>
+            </div>
+          ) : (
+            // Presidential: Show vote totals
+            <LiveTotals
+              totalVotesCast={data.totalVotesCast}
+              totalRegisteredVoters={data.totalRegisteredVoters}
+              turnoutPercentage={data.turnoutPercentage}
+            />
+          )}
         </div>
 
         <div className="progress-section">
@@ -169,20 +167,44 @@ const NationalDashboard: React.FC<NationalDashboardProps> = ({ electionId, onClo
       </div>
 
       <div className="candidates-section">
-        <h3>Results by Candidate</h3>
-        <div className="candidate-bars">
-          {data.candidateResults.map((candidate) => (
-            <CandidateBar
-              key={candidate.candidateId}
-              candidateName={candidate.candidateName}
-              party={candidate.party}
-              partyColor={candidate.partyColor}
-              totalVotes={candidate.totalVotes}
-              percentage={candidate.percentage}
-              isWinner={data.winner?.candidateId === candidate.candidateId}
-            />
-          ))}
-        </div>
+        {isMPElection && partySummary ? (
+          // MP Elections: Show party seats
+          <>
+            <h3>Seats by Party</h3>
+            <div className="candidate-bars">
+              {partySummary.partySummary.map((party: PartySummary) => (
+                <CandidateBar
+                  key={party.partyId ?? 'ind'}
+                  candidateName={party.partyName}
+                  party={party.abbreviation}
+                  partyColor={party.color}
+                  totalVotes={party.seatsWon}
+                  percentage={party.percentage}
+                  isWinner={party === winningParty}
+                  label="seats"
+                />
+              ))}
+            </div>
+          </>
+        ) : (
+          // Presidential: Show candidate votes
+          <>
+            <h3>Results by Candidate</h3>
+            <div className="candidate-bars">
+              {data.candidateResults.map((candidate: CandidateResult) => (
+                <CandidateBar
+                  key={candidate.candidateId}
+                  candidateName={candidate.candidateName}
+                  party={candidate.party}
+                  partyColor={candidate.partyColor}
+                  totalVotes={candidate.totalVotes}
+                  percentage={candidate.percentage}
+                  isWinner={data.winner?.candidateId === candidate.candidateId}
+                />
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

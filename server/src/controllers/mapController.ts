@@ -247,10 +247,17 @@ export const getAggregatedResults = async (req: Request, res: Response): Promise
       return;
     }
 
-    // Get election year for district history inheritance
+    // Get election info including type to determine result storage level
     const election = await prisma.election.findUnique({
       where: { id: electionId },
-      select: { year: true }
+      select: {
+        year: true,
+        electionType: {
+          select: {
+            code: true
+          }
+        }
+      }
     });
 
     if (!election) {
@@ -258,19 +265,28 @@ export const getAggregatedResults = async (req: Request, res: Response): Promise
       return;
     }
 
-    // Build dynamic SQL based on target level
-    // We always aggregate from parish level (5) up to the target level
+    // Determine the level at which results are stored based on election type
+    // Presidential (PRES): results at parish level (5), aggregate to any level
+    // Constituency MP (CONST_MP): results at constituency level (3)
+    // District Woman MP (WOMAN_MP): results at district level (2)
+    const electionTypeCode = election.electionType?.code;
+    const resultsStoredAtLevel = electionTypeCode === 'PRES' ? 5 :
+                                  electionTypeCode === 'CONST_MP' ? 3 :
+                                  electionTypeCode === 'WOMAN_MP' ? 2 : 5;
+
+    // Build dynamic SQL based on target level and where results are stored
     let aggregatedResults: any[];
 
-    if (targetLevel === 5) {
-      // Parish level - no aggregation needed, just get results directly
+    // Case 1: Results are at or above target level - query directly without aggregation
+    // This handles: Woman MP at district (2), Constituency MP at constituency (3), or parish-level target
+    if (resultsStoredAtLevel <= targetLevel) {
       const whereClause: any = {
         electionId,
         status: 'approved',
-        adminUnit: { level: 5 }
+        adminUnit: { level: resultsStoredAtLevel }
       };
 
-      // Filter by parent (subcounty) if provided
+      // Filter by parent if provided
       if (parentId) {
         whereClause.adminUnit.parentId = parentId;
       }
@@ -432,25 +448,28 @@ export const getAggregatedResults = async (req: Request, res: Response): Promise
       }
     });
 
-    // Build GeoJSON features
+    // Build GeoJSON features - iterate over ALL units, not just those with data
+    // This ensures districts without results still appear (with gray color)
     const features: any[] = [];
 
-    unitMap.forEach((unit, unitId) => {
-      const geoData = geometryMap.get(unitId);
+    allUnits.forEach(u => {
+      const geoData = geometryMap.get(u.id);
       if (!geoData) return;
 
       const geometry = geoData.geometry;
+      const unit = unitMap.get(u.id);
 
       const props = {
-        unitId: unitId,
-        unitName: unit.unitName,
+        unitId: u.id,
+        unitName: unit?.unitName || u.name,
         level: targetLevel,
-        totalVotes: unit.totalVotes,
-        winnerColor: unit.winner?.partyColor || '#cccccc',
-        winner: unit.winner,
-        candidates: unit.candidates,
-        inherited: unit.inherited || false,
-        inheritedFrom: unit.inheritedFrom || null
+        totalVotes: unit?.totalVotes || 0,
+        winnerColor: unit?.winner?.partyColor || '#cccccc',
+        winner: unit?.winner || null,
+        candidates: unit?.candidates || [],
+        inherited: unit?.inherited || false,
+        inheritedFrom: unit?.inheritedFrom || null,
+        noData: !unit
       };
 
       // Explode MultiPolygon into individual Polygon features for better rendering
@@ -458,7 +477,7 @@ export const getAggregatedResults = async (req: Request, res: Response): Promise
         geometry.coordinates.forEach((polygonCoords: any, idx: number) => {
           features.push({
             type: 'Feature',
-            id: `${unitId}-${idx}`,
+            id: `${u.id}-${idx}`,
             properties: props,
             geometry: {
               type: 'Polygon',
@@ -469,7 +488,7 @@ export const getAggregatedResults = async (req: Request, res: Response): Promise
       } else {
         features.push({
           type: 'Feature',
-          id: unitId,
+          id: u.id,
           properties: props,
           geometry: geometry
         });

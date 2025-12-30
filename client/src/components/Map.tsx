@@ -11,6 +11,12 @@ interface MapProps {
 const Map = ({ onLoad, className, touchOptimized: _touchOptimized = true }: MapProps) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
+  const onLoadRef = useRef(onLoad);
+
+  // Keep onLoad ref updated without triggering effect
+  useEffect(() => {
+    onLoadRef.current = onLoad;
+  }, [onLoad]);
 
   useEffect(() => {
     if (map.current || !mapContainer.current) return;
@@ -56,42 +62,72 @@ const Map = ({ onLoad, className, touchOptimized: _touchOptimized = true }: MapP
       'top-right'
     );
 
-    // Call onLoad callback when map style is fully loaded
-    if (onLoad && map.current) {
-      const mapInstance = map.current;
+    const mapInstance = map.current;
 
-      // Wait for both load and style to be ready
-      const checkAndCallback = () => {
-        if (mapInstance && mapInstance.isStyleLoaded()) {
-          onLoad(mapInstance);
-        } else {
-          // If style not ready yet, wait a bit more
-          mapInstance.once('styledata', () => {
-            onLoad(mapInstance);
-          });
-        }
-      };
+    // Wait for both load and style to be ready
+    const checkAndCallback = () => {
+      if (mapInstance && mapInstance.isStyleLoaded() && onLoadRef.current) {
+        onLoadRef.current(mapInstance);
+      } else if (onLoadRef.current) {
+        // If style not ready yet, wait a bit more
+        mapInstance.once('styledata', () => {
+          if (onLoadRef.current) {
+            onLoadRef.current(mapInstance);
+          }
+        });
+      }
+    };
 
-      mapInstance.on('load', checkAndCallback);
+    mapInstance.on('load', checkAndCallback);
+
+    // Handle container resize (for fullscreen transitions)
+    const resizeObserver = new ResizeObserver(() => {
+      if (map.current) {
+        map.current.resize();
+      }
+    });
+    if (mapContainer.current) {
+      resizeObserver.observe(mapContainer.current);
     }
+
+    // Also handle fullscreen changes with multiple resize attempts
+    const handleFullscreenChange = () => {
+      // Resize immediately
+      if (map.current) {
+        map.current.resize();
+      }
+      // Resize again after layout settles
+      setTimeout(() => {
+        if (map.current) {
+          map.current.resize();
+        }
+      }, 100);
+      // One more resize after animations complete
+      setTimeout(() => {
+        if (map.current) {
+          map.current.resize();
+        }
+      }, 300);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     // Cleanup on unmount
     return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      resizeObserver.disconnect();
       if (map.current) {
         map.current.remove();
         map.current = null;
       }
     };
-  }, [onLoad]);
+  }, []); // Empty dependency array - map only created once
 
   return (
-    <div className={`relative w-full h-full ${className || ''}`}>
-      <div
-        ref={mapContainer}
-        className="absolute inset-0"
-        style={{ width: '100%', height: '100%' }}
-      />
-    </div>
+    <div
+      ref={mapContainer}
+      className={`w-full h-full ${className || ''}`}
+      style={{ minHeight: '400px' }}
+    />
   );
 };
 

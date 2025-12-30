@@ -7,6 +7,7 @@ interface CandidateBarProps {
   totalVotes: number;
   percentage: number;
   isWinner?: boolean;
+  label?: string; // "votes" or "seats"
 }
 
 const CandidateBar: React.FC<CandidateBarProps> = ({
@@ -15,7 +16,8 @@ const CandidateBar: React.FC<CandidateBarProps> = ({
   partyColor,
   totalVotes,
   percentage,
-  isWinner = false
+  isWinner = false,
+  label = 'votes'
 }) => {
   const [animatedPercentage, setAnimatedPercentage] = useState(0);
   const [animatedVotes, setAnimatedVotes] = useState(0);
@@ -77,7 +79,7 @@ const CandidateBar: React.FC<CandidateBarProps> = ({
       </div>
 
       <div className="candidate-stats">
-        <div className="votes">{animatedVotes.toLocaleString()}</div>
+        <div className="votes">{animatedVotes.toLocaleString()} {label}</div>
         <div className="percentage">{percentage.toFixed(2)}%</div>
       </div>
     </div>

@@ -3,13 +3,15 @@ import { useSearchParams } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import Map from '../components/Map';
 import NationalDashboard from '../components/NationalDashboard';
-import { api } from '../lib/api';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useElectionsWithOffline } from '../hooks/useElectionData';
+import { invalidateElectionQueries } from '../lib/queryClient';
 import type { DrillDownState, BreadcrumbItem } from '../hooks/useElectionMap';
 import {
   LEVEL_NAMES,
   INITIAL_DRILL_DOWN,
-  createResultsPopupHTML
+  createResultsPopupHTML,
+  createInitialDrillDown
 } from '../hooks/useElectionMap';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -60,22 +62,31 @@ function usePresentationMode() {
   return { isPresentationMode, setIsPresentationMode, togglePresentationMode };
 }
 
+// Election type from API
 interface Election {
   id: number;
   name: string;
+  year?: number;
   electionDate: string;
-  electionType: { name: string; code: string };
-  electionTypeName?: string;
+  electionType: { name: string; code: string; electoralLevel: number };
+  electionTypeName: string;
+  electionTypeCode: string;
+  isActive: boolean;
+  createdAt: string;
+  _count: { candidates: number; results: number };
 }
 
 export function MapDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [elections, setElections] = useState<Election[]>([]);
   const [selectedElection, setSelectedElection] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isMapDataLoading, setIsMapDataLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'dashboard'>('map');
   const mapRef = useRef<maplibregl.Map | null>(null);
+
+  // Load elections with offline support
+  const { data: electionsData, isLoading } = useElectionsWithOffline();
+  const elections: Election[] = electionsData ?? [];
 
   // Presentation mode for TV broadcast
   const { isPresentationMode, togglePresentationMode } = usePresentationMode();
@@ -89,6 +100,8 @@ export function MapDashboard() {
   const [rightDrillDown, setRightDrillDown] = useState<DrillDownState>(INITIAL_DRILL_DOWN);
   const [isSyncEnabled, setIsSyncEnabled] = useState(true);
   const [isSwingMode, setIsSwingMode] = useState(false); // Swing visualization toggle
+  const [leftMapLoaded, setLeftMapLoaded] = useState(false); // Track when left map is ready
+  const [rightMapLoaded, setRightMapLoaded] = useState(false); // Track when right map is ready
   const rightMapRef = useRef<maplibregl.Map | null>(null);
   const isSyncingRef = useRef(false); // Prevent infinite sync loops
   const isSyncEnabledRef = useRef(true); // Ref for closure access
@@ -101,53 +114,67 @@ export function MapDashboard() {
       // Refresh map if approved result is for current election
       if (payload.electionId === selectedElection) {
         loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId);
+        // Also invalidate React Query cache for offline support
+        invalidateElectionQueries(payload.electionId);
       }
     }
   });
 
   useEffect(() => {
-    loadElections();
-  }, []);
-
-  useEffect(() => {
     const electionId = searchParams.get('election');
     if (electionId) {
-      setSelectedElection(parseInt(electionId));
+      const parsedId = parseInt(electionId);
+      setSelectedElection(parsedId);
+      // Set appropriate initial level for the election type
+      const election = elections.find(e => e.id === parsedId);
+      if (election) {
+        setDrillDown(createInitialDrillDown(election.electionType?.code));
+      }
     } else if (elections.length > 0) {
-      // Select first active election by default
-      const activeElection = elections.find(e => e.electionDate);
-      if (activeElection) {
-        setSelectedElection(activeElection.id);
-        setSearchParams({ election: activeElection.id.toString() });
+      // Default to 2021 Presidential Election, or first available if not found
+      const defaultElection = elections.find(e =>
+        e.name === '2021 Presidential Election' ||
+        (e.electionType?.code === 'PRES' && e.year === 2021)
+      ) || elections.find(e => e.electionDate);
+
+      if (defaultElection) {
+        setSelectedElection(defaultElection.id);
+        setSearchParams({ election: defaultElection.id.toString() });
+        setDrillDown(createInitialDrillDown(defaultElection.electionType?.code));
       }
     }
   }, [elections, searchParams]);
 
   useEffect(() => {
-    if (selectedElection && mapRef.current) {
+    if (selectedElection && leftMapLoaded && mapRef.current) {
       loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId);
     }
-  }, [selectedElection, drillDown.currentLevel, drillDown.currentParentId]);
+  }, [selectedElection, drillDown.currentLevel, drillDown.currentParentId, leftMapLoaded]);
 
   // Keep sync ref in sync with state (for closure access)
   useEffect(() => {
     isSyncEnabledRef.current = isSyncEnabled;
   }, [isSyncEnabled]);
 
-  const loadElections = async () => {
-    try {
-      setIsLoading(true);
-      const data = await api.getElections();
-      setElections(data);
-      setError(null);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to load elections'
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Resize maps when presentation mode changes
+  useEffect(() => {
+    const resizeMaps = () => {
+      if (mapRef.current) {
+        mapRef.current.resize();
+      }
+      if (rightMapRef.current) {
+        rightMapRef.current.resize();
+      }
+    };
+    // Resize immediately and after layout settles
+    resizeMaps();
+    const timer1 = setTimeout(resizeMaps, 100);
+    const timer2 = setTimeout(resizeMaps, 300);
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, [isPresentationMode]);
 
   const loadElectionResults = async (
     electionId: number,
@@ -158,6 +185,7 @@ export function MapDashboard() {
     if (!map) return;
 
     console.log('Loading election results for election:', electionId, 'level:', level, 'parentId:', parentId);
+    setIsMapDataLoading(true);
 
     try {
       // Use aggregated endpoint which has explode logic for MultiPolygons
@@ -349,18 +377,22 @@ export function MapDashboard() {
       }
       // Re-enable sync after animation completes
       setTimeout(() => { isProgrammaticMoveRef.current = false; }, 1600);
+      setIsMapDataLoading(false);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to load election results'
       );
+      setIsMapDataLoading(false);
     }
   };
 
   const handleElectionChange = (electionId: number) => {
     setSelectedElection(electionId);
     setSearchParams({ election: electionId.toString() });
-    // Reset drill-down state when election changes
-    setDrillDown(INITIAL_DRILL_DOWN);
+    // Reset drill-down state with appropriate level for election type
+    const election = elections.find(e => e.id === electionId);
+    const initialState = createInitialDrillDown(election?.electionType?.code);
+    setDrillDown(initialState);
   };
 
   // Navigate breadcrumb - go back to a specific level
@@ -391,11 +423,10 @@ export function MapDashboard() {
     }
   };
 
-  const handleMapLoad = (map: maplibregl.Map) => {
+  const handleMapLoad = useCallback((map: maplibregl.Map) => {
     mapRef.current = map;
-    if (selectedElection) {
-      loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId);
-    }
+    setLeftMapLoaded(true);
+    // Results will be loaded by the effect that watches leftMapLoaded
 
     // Set up sync handler for left map (only for user interactions)
     map.on('moveend', () => {
@@ -409,14 +440,13 @@ export function MapDashboard() {
       });
       isSyncingRef.current = false;
     });
-  };
+  }, []);
 
   // Right map handlers for comparison mode
-  const handleRightMapLoad = (map: maplibregl.Map) => {
+  const handleRightMapLoad = useCallback((map: maplibregl.Map) => {
     rightMapRef.current = map;
-    if (rightElection) {
-      loadElectionResultsForMap(map, rightElection, rightDrillDown.currentLevel, rightDrillDown.currentParentId, true);
-    }
+    setRightMapLoaded(true);
+    // Results will be loaded by the effect that watches rightMapLoaded
 
     // Set up sync handler for right map (only for user interactions)
     map.on('moveend', () => {
@@ -430,7 +460,7 @@ export function MapDashboard() {
       });
       isSyncingRef.current = false;
     });
-  };
+  }, []);
 
   const loadElectionResultsForMap = async (
     map: maplibregl.Map,
@@ -620,10 +650,10 @@ export function MapDashboard() {
 
   // Effect to load right map results when election or drill-down changes
   useEffect(() => {
-    if (rightElection && rightMapRef.current && isComparisonMode) {
+    if (rightElection && rightMapLoaded && rightMapRef.current && isComparisonMode) {
       loadElectionResultsForMap(rightMapRef.current, rightElection, rightDrillDown.currentLevel, rightDrillDown.currentParentId, true);
     }
-  }, [rightElection, rightDrillDown.currentLevel, rightDrillDown.currentParentId, isComparisonMode]);
+  }, [rightElection, rightDrillDown.currentLevel, rightDrillDown.currentParentId, isComparisonMode, rightMapLoaded]);
 
   // Load swing data for comparison visualization
   const loadSwingData = async (
@@ -791,13 +821,18 @@ export function MapDashboard() {
                 <label className="block text-sm font-medium mb-2">Compare</label>
                 <button
                   onClick={() => {
-                    setIsComparisonMode(!isComparisonMode);
-                    if (!isComparisonMode && selectedElection) {
+                    const enteringComparisonMode = !isComparisonMode;
+                    setIsComparisonMode(enteringComparisonMode);
+                    if (enteringComparisonMode && selectedElection) {
                       // When entering comparison mode, set right election to something different
                       const otherElection = elections.find(e => e.id !== selectedElection);
                       if (otherElection) {
                         setRightElection(otherElection.id);
                       }
+                    } else {
+                      // When exiting comparison mode, reset right map state
+                      setRightMapLoaded(false);
+                      rightMapRef.current = null;
                     }
                   }}
                   className={`px-4 py-2 rounded-md transition-colors ${
@@ -880,8 +915,8 @@ export function MapDashboard() {
         </div>
       )}
 
-      {/* Content Container */}
-      <div className="flex-1 relative">
+      {/* Content Container - use absolute positioning for proper height */}
+      <div className="flex-1 relative overflow-hidden">
         {viewMode === 'map' ? (
           <>
             {/* Comparison Mode Controls - Floating Center - Hidden in presentation mode */}
@@ -919,10 +954,20 @@ export function MapDashboard() {
               </div>
             )}
 
-            <div className={`flex h-full ${isComparisonMode ? 'gap-1' : ''}`}>
+            <div className={`absolute inset-0 flex ${isComparisonMode ? 'gap-1' : ''}`}>
               {/* Left Map Panel */}
-            <div className={`relative ${isComparisonMode ? 'w-1/2' : 'w-full'} h-full`}>
-              <Map onLoad={handleMapLoad} className="absolute inset-0" />
+            <div className={`relative ${isComparisonMode ? 'w-1/2' : 'w-full'}`}>
+              <Map key="left-map" onLoad={handleMapLoad} className="absolute inset-0" />
+
+              {/* Loading Indicator */}
+              {isMapDataLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/30 z-20">
+                  <div className="bg-gray-800 rounded-lg px-6 py-4 flex items-center gap-4 shadow-xl">
+                    <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-white font-medium">Loading election data...</span>
+                  </div>
+                </div>
+              )}
 
               {/* Left Election Selector for comparison mode - Hidden in presentation mode */}
               {isComparisonMode && !isPresentationMode && (
@@ -994,8 +1039,8 @@ export function MapDashboard() {
 
             {/* Right Map Panel (Comparison Mode) */}
             {isComparisonMode && (
-              <div className="relative w-1/2 h-full border-l border-gray-600">
-                <Map onLoad={handleRightMapLoad} className="absolute inset-0" />
+              <div className="relative w-1/2 border-l border-gray-600">
+                <Map key="right-map" onLoad={handleRightMapLoad} className="absolute inset-0" />
 
                 {/* Right Election Selector - Hidden in presentation mode */}
                 {!isPresentationMode && (

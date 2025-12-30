@@ -225,3 +225,27 @@ export const INITIAL_DRILL_DOWN: DrillDownState = {
   currentParentId: null,
   breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
 };
+
+// Get initial level based on election type
+// Presidential: start at district (2)
+// Constituency MP: start at constituency (3)
+// District Woman MP: start at district (2)
+export function getInitialLevelForElectionType(electionTypeCode?: string): number {
+  switch (electionTypeCode) {
+    case 'CONST_MP':
+      return 3; // Constituency
+    case 'WOMAN_MP':
+    case 'PRES':
+    default:
+      return 2; // District
+  }
+}
+
+// Create initial drill-down state for a specific election type
+export function createInitialDrillDown(electionTypeCode?: string): DrillDownState {
+  return {
+    currentLevel: getInitialLevelForElectionType(electionTypeCode),
+    currentParentId: null,
+    breadcrumb: [{ id: 0, name: 'Uganda', level: 0 }]
+  };
+}
