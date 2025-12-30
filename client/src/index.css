@@ -15,3 +15,73 @@ body {
 }
 
 /* Custom component styles will go here */
+
+/* Touch-optimized MapLibre controls - minimum 44px touch target (Apple HIG) */
+.maplibregl-ctrl-group {
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+}
+
+.maplibregl-ctrl-group button {
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  min-height: 44px !important;
+}
+
+.maplibregl-ctrl-group button span {
+  font-size: 18px !important;
+}
+
+/* Larger zoom buttons for touch screens */
+@media (pointer: coarse) {
+  .maplibregl-ctrl-group button {
+    width: 52px !important;
+    height: 52px !important;
+  }
+
+  .maplibregl-ctrl-group button span {
+    font-size: 22px !important;
+  }
+
+  /* Larger touch targets for general buttons */
+  button,
+  [role="button"],
+  select {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Smooth touch interactions */
+.maplibregl-canvas-container {
+  touch-action: none;
+}
+
+/* Disable text selection during map interaction */
+.maplibregl-map {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Presentation mode styles */
+.presentation-mode {
+  cursor: none;
+}
+
+.presentation-mode:hover {
+  cursor: default;
+}
+
+/* Hide scrollbars in presentation mode but allow scrolling */
+.presentation-mode ::-webkit-scrollbar {
+  display: none;
+}
+
+.presentation-mode {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

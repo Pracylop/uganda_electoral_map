@@ -5,16 +5,17 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 interface MapProps {
   onLoad?: (map: maplibregl.Map) => void;
   className?: string;
+  touchOptimized?: boolean; // Enable larger touch targets and gestures
 }
 
-const Map = ({ onLoad, className }: MapProps) => {
+const Map = ({ onLoad, className, touchOptimized = true }: MapProps) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
 
   useEffect(() => {
     if (map.current || !mapContainer.current) return;
 
-    // Initialize map centered on Uganda
+    // Initialize map centered on Uganda with touch gesture support
     map.current = new maplibregl.Map({
       container: mapContainer.current,
       style: {
@@ -37,11 +38,23 @@ const Map = ({ onLoad, className }: MapProps) => {
         ]
       },
       center: [32.5825, 1.3733], // Uganda coordinates (Kampala)
-      zoom: 6.5
+      zoom: 6.5,
+      // Touch gesture configuration
+      dragRotate: true,           // Enable drag to rotate
+      touchZoomRotate: true,      // Enable pinch zoom and rotation
+      touchPitch: true,           // Enable two-finger pitch/tilt
+      doubleClickZoom: true       // Enable double-tap to zoom
     });
 
-    // Add navigation controls (zoom buttons)
-    map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
+    // Add navigation controls with touch-friendly sizing
+    map.current.addControl(
+      new maplibregl.NavigationControl({
+        showCompass: true,
+        showZoom: true,
+        visualizePitch: true  // Show pitch indicator
+      }),
+      'top-right'
+    );
 
     // Call onLoad callback when map style is fully loaded
     if (onLoad && map.current) {
