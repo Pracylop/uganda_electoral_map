@@ -594,4 +594,91 @@ export const api = {
       topDistricts: Array<{ district: string; districtId: number; count: number }>;
     }>(`/api/polling-stations/stats${query}`);
   },
+
+  // Demographics API
+  getDemographicsStats: (censusYear?: number) => {
+    const query = censusYear ? `?censusYear=${censusYear}` : '';
+    return apiRequest<{
+      censusYear: number;
+      national: {
+        totalPopulation: number;
+        malePopulation: number;
+        femalePopulation: number;
+        votingAgePopulation: number;
+        youthPopulation: number;
+        elderlyPopulation: number;
+        numberOfHouseholds: number;
+        parishCount: number;
+      };
+      districts: Array<{
+        districtId: number;
+        districtName: string;
+        totalPopulation: number;
+        malePopulation: number;
+        femalePopulation: number;
+        votingAgePopulation: number;
+        youthPopulation: number;
+        elderlyPopulation: number;
+        numberOfHouseholds: number;
+        parishCount: number;
+      }>;
+    }>(`/api/demographics/stats${query}`);
+  },
+
+  getDemographicsByUnit: (adminUnitId: number, censusYear?: number) => {
+    const query = censusYear ? `?censusYear=${censusYear}` : '';
+    return apiRequest<{
+      adminUnit: { id: number; name: string; level: number };
+      demographics: {
+        totalPopulation: number;
+        malePopulation: number;
+        femalePopulation: number;
+        votingAgePopulation: number;
+        youthPopulation: number;
+        elderlyPopulation: number;
+        numberOfHouseholds: number;
+        avgHouseholdSize?: number;
+      };
+    }>(`/api/demographics/${adminUnitId}${query}`);
+  },
+
+  getDemographicsGeoJSON: (params?: {
+    level?: number;
+    censusYear?: number;
+    metric?: 'population' | 'votingAge' | 'density';
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.level) searchParams.append('level', params.level.toString());
+    if (params?.censusYear) searchParams.append('censusYear', params.censusYear.toString());
+    if (params?.metric) searchParams.append('metric', params.metric);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest<{
+      type: 'FeatureCollection';
+      properties: {
+        censusYear: number;
+        level: number;
+        metric: string;
+        featureCount: number;
+      };
+      features: Array<{
+        type: 'Feature';
+        properties: {
+          id: number;
+          name: string;
+          level: number;
+          totalPopulation: number;
+          malePopulation: number;
+          femalePopulation: number;
+          votingAgePopulation: number;
+          youthPopulation: number;
+          elderlyPopulation: number;
+          numberOfHouseholds: number;
+          parishCount: number;
+          votingAgePercent: number;
+          malePercent: number;
+        };
+        geometry: GeoJSON.Geometry;
+      }>;
+    }>(`/api/demographics/geojson${query}`);
+  },
 };
