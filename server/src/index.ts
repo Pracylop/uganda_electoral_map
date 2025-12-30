@@ -8,6 +8,7 @@ import candidateRoutes from './routes/candidateRoutes';
 import resultRoutes from './routes/resultRoutes';
 import mapRoutes from './routes/mapRoutes';
 import referenceRoutes from './routes/referenceRoutes';
+import issueRoutes from './routes/issueRoutes';
 import { websocketService } from './services/websocketService';
 
 // Load environment variables
@@ -38,6 +39,7 @@ app.use('/api/candidates', candidateRoutes);
 app.use('/api/results', resultRoutes);
 app.use('/api/map', mapRoutes);
 app.use('/api/reference', referenceRoutes);
+app.use('/api/issues', issueRoutes);
 
 // Start server
 app.listen(PORT, () => {

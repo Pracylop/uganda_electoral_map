@@ -6,10 +6,12 @@ import NationalDashboard from '../components/NationalDashboard';
 import { GestureTutorial, useGestureTutorial } from '../components/GestureTutorial';
 import { GestureIndicator } from '../components/GestureIndicator';
 import { PresentationControls } from '../components/PresentationControls';
+import { IncidentsLayer, IncidentsFilterPanel } from '../components/IncidentsLayer';
 import { useSwipeNavigation, SwipeIndicator } from '../hooks/useSwipeNavigation';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useElectionsWithOffline } from '../hooks/useElectionData';
 import { invalidateElectionQueries } from '../lib/queryClient';
+import { api } from '../lib/api';
 import type { DrillDownState, BreadcrumbItem } from '../hooks/useElectionMap';
 import {
   LEVEL_NAMES,
@@ -117,6 +119,17 @@ export function MapDashboard() {
   const isSyncEnabledRef = useRef(true); // Ref for closure access
   const isProgrammaticMoveRef = useRef(false); // Disable sync during fitBounds
 
+  // Electoral incidents layer state
+  const [showIncidents, setShowIncidents] = useState(false);
+  const [incidentCategories, setIncidentCategories] = useState<Array<{
+    id: number;
+    name: string;
+    code: string;
+    color: string | null;
+    severity: number;
+  }>>([]);
+  const [selectedIncidentCategory, setSelectedIncidentCategory] = useState<number | null>(null);
+
   // WebSocket connection for real-time updates
   useWebSocket((message) => {
     if (message.type === 'RESULT_APPROVED' && selectedElection) {
@@ -129,6 +142,13 @@ export function MapDashboard() {
       }
     }
   });
+
+  // Load incident categories on mount
+  useEffect(() => {
+    api.getIssueCategories()
+      .then(setIncidentCategories)
+      .catch((err) => console.error('Failed to load incident categories:', err));
+  }, []);
 
   useEffect(() => {
     const electionId = searchParams.get('election');
@@ -1082,6 +1102,28 @@ export function MapDashboard() {
                         : 'Click on any parish to see detailed results'}
                     </p>
                   )}
+                </div>
+              )}
+
+              {/* Electoral Incidents Layer */}
+              <IncidentsLayer
+                map={mapRef.current}
+                visible={showIncidents && !isComparisonMode}
+                filters={{
+                  categoryId: selectedIncidentCategory ?? undefined,
+                }}
+              />
+
+              {/* Incidents Filter Panel - Bottom Right */}
+              {!isPresentationMode && !isComparisonMode && (
+                <div className="absolute bottom-6 right-6 z-10">
+                  <IncidentsFilterPanel
+                    categories={incidentCategories}
+                    selectedCategory={selectedIncidentCategory}
+                    onCategoryChange={setSelectedIncidentCategory}
+                    visible={showIncidents}
+                    onVisibilityChange={setShowIncidents}
+                  />
                 </div>
               )}
             </div>

@@ -408,4 +408,98 @@ export const api = {
     apiRequest<{ message: string }>(`/api/candidates/${id}`, {
       method: 'DELETE',
     }),
+
+  // Electoral Issues
+  getIssueCategories: () =>
+    apiRequest<
+      Array<{
+        id: number;
+        name: string;
+        code: string;
+        description: string | null;
+        severity: number;
+        color: string | null;
+        isActive: boolean;
+      }>
+    >('/api/issues/categories'),
+
+  getIssues: (params?: {
+    categoryId?: number;
+    districtId?: number;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.categoryId) searchParams.append('categoryId', params.categoryId.toString());
+    if (params?.districtId) searchParams.append('districtId', params.districtId.toString());
+    if (params?.startDate) searchParams.append('startDate', params.startDate);
+    if (params?.endDate) searchParams.append('endDate', params.endDate);
+    if (params?.limit) searchParams.append('limit', params.limit.toString());
+    if (params?.offset) searchParams.append('offset', params.offset.toString());
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest<{
+      issues: Array<{
+        id: number;
+        date: string;
+        time: string | null;
+        summary: string;
+        fullText: string | null;
+        location: string | null;
+        village: string | null;
+        status: string;
+        issueCategory: { id: number; name: string; code: string; severity: number; color: string | null };
+        district: { id: number; name: string } | null;
+        constituency: { id: number; name: string } | null;
+      }>;
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/api/issues${query}`);
+  },
+
+  getIssuesGeoJSON: (params?: {
+    categoryId?: number;
+    districtId?: number;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.categoryId) searchParams.append('categoryId', params.categoryId.toString());
+    if (params?.districtId) searchParams.append('districtId', params.districtId.toString());
+    if (params?.startDate) searchParams.append('startDate', params.startDate);
+    if (params?.endDate) searchParams.append('endDate', params.endDate);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest<{
+      type: 'FeatureCollection';
+      features: Array<{
+        type: 'Feature';
+        geometry: { type: 'Point'; coordinates: [number, number] };
+        properties: {
+          id: number;
+          date: string;
+          category: string;
+          categoryCode: string;
+          categoryColor: string;
+          severity: number;
+          summary: string;
+          location: string | null;
+          district: string | null;
+          districtId: number | null;
+          status: string;
+        };
+      }>;
+    }>(`/api/issues/geojson${query}`);
+  },
+
+  getIssueStats: (districtId?: number) => {
+    const query = districtId ? `?districtId=${districtId}` : '';
+    return apiRequest<{
+      total: number;
+      byCategory: Array<{ category: string; categoryCode: string; color: string | null; count: number }>;
+      byStatus: Array<{ status: string; count: number }>;
+      topDistricts: Array<{ district: string; districtId: number | null; count: number }>;
+    }>(`/api/issues/stats${query}`);
+  },
 };

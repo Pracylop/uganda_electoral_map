@@ -405,6 +405,136 @@ This document contains test cases for verifying feature functionality. Use this 
 
 ---
 
+### Electoral Incidents Layer
+
+**Test ID:** TEST-005
+**Date Added:** 2024-12-30
+**Status:** Not Tested
+
+**Prerequisites:**
+- Application running at http://localhost:5173
+- User logged in
+- Electoral issues imported in database
+
+#### Test Case 5.1: Incidents Layer Toggle
+
+**Test Steps:**
+1. Navigate to Electoral Map
+2. Select an election
+3. Look for "Electoral Issues" panel in bottom-right corner
+4. Check the "Show" checkbox
+
+**Expected Results:**
+- Incidents filter panel visible at bottom-right
+- Checking "Show" displays incident markers on the map
+- Unchecking hides the markers
+- Markers appear as colored circles based on category
+
+---
+
+#### Test Case 5.2: Category Filter
+
+**Test Steps:**
+1. Enable incidents layer (Test 5.1)
+2. Click the category dropdown
+3. Select a specific category (e.g., "Violence/Assault")
+4. Select "All Categories" again
+
+**Expected Results:**
+- Dropdown shows all available issue categories
+- Selecting a category filters markers to only show that type
+- "All Categories" shows all incidents
+- Map updates immediately after selection
+
+---
+
+#### Test Case 5.3: Incident Clustering
+
+**Test Steps:**
+1. Enable incidents layer
+2. Zoom out to show all of Uganda
+3. Observe clustered markers
+4. Click on a clustered marker
+
+**Expected Results:**
+- When zoomed out, incidents cluster into numbered circles
+- Cluster color changes based on count (orange < 10, red >= 25)
+- Clicking a cluster zooms in to expand it
+- At higher zoom levels, individual markers appear
+
+---
+
+#### Test Case 5.4: Incident Popup
+
+**Test Steps:**
+1. Enable incidents layer
+2. Zoom in to see individual incident markers
+3. Click on an incident marker (colored circle)
+
+**Expected Results:**
+- Popup appears with incident details:
+  - Category name with color dot
+  - Date (and time if available)
+  - Summary text
+  - Location/district information
+  - Severity (1-5 stars)
+  - Status badge (reported/resolved)
+- Popup has close button
+- Clicking elsewhere closes popup
+
+---
+
+#### Test Case 5.5: Incident Marker Styling
+
+**Test Steps:**
+1. Enable incidents layer
+2. Zoom in to view individual markers
+3. Observe marker sizes and colors
+
+**Expected Results:**
+- Markers are colored by category:
+  - Violence: Red (#DC143C)
+  - Campaign Blockage: Orange (#FF6B6B)
+  - Court Case: Blue (#4169E1)
+  - Arrest/Detention: Dark Red (#B22222)
+  - Other: Gray (#808080)
+- Marker size varies by severity (larger = more severe)
+- White stroke around each marker for visibility
+
+---
+
+#### Test Case 5.6: Incidents with Election Results
+
+**Test Steps:**
+1. Select an election and view choropleth map
+2. Enable incidents layer
+3. Drill down to constituency level
+4. Toggle incidents layer off and on
+
+**Expected Results:**
+- Incidents layer overlays on top of election results
+- Both layers interactive (can click either)
+- Results choropleth visible beneath incident markers
+- Toggling incidents doesn't affect election results layer
+
+---
+
+#### Test Case 5.7: API Endpoints
+
+**Test Steps (via curl or browser DevTools):**
+1. GET /api/issues/categories
+2. GET /api/issues/geojson
+3. GET /api/issues/stats
+4. GET /api/issues?limit=10
+
+**Expected Results:**
+1. Categories: Returns array of issue categories with id, name, code, color, severity
+2. GeoJSON: Returns FeatureCollection with Point features for each issue
+3. Stats: Returns total count, byCategory, byStatus, topDistricts
+4. Issues: Returns paginated list of issues with full details
+
+---
+
 ## Test Execution Log
 
 | Date | Tester | Test ID | Result | Notes |
