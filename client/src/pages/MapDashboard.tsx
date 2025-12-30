@@ -178,17 +178,12 @@ export function MapDashboard() {
       const geojson = data.type === 'FeatureCollection' ? data : data;
       console.log('GeoJSON features count:', geojson.features?.length || 0);
 
-      // Remove existing results layer if present
+      // Remove existing results layers if present
       try {
-        if (map.getLayer('results-fill')) {
-          map.removeLayer('results-fill');
-        }
-        if (map.getLayer('results-outline')) {
-          map.removeLayer('results-outline');
-        }
-        if (map.getSource('results')) {
-          map.removeSource('results');
-        }
+        if (map.getLayer('results-fill')) map.removeLayer('results-fill');
+        if (map.getLayer('results-highlight')) map.removeLayer('results-highlight');
+        if (map.getLayer('results-outline')) map.removeLayer('results-outline');
+        if (map.getSource('results')) map.removeSource('results');
       } catch (e) {
         console.warn('Error removing existing layers:', e);
       }
@@ -199,25 +194,40 @@ export function MapDashboard() {
         data: geojson
       });
 
-      // Add fill layer colored by winning party
+      // Add fill layer colored by winning party with smooth transitions
       map.addLayer({
         id: 'results-fill',
         type: 'fill',
         source: 'results',
         paint: {
           'fill-color': ['coalesce', ['get', 'winnerColor'], '#cccccc'],
-          'fill-opacity': 0.7
+          'fill-opacity': 0.75,
+          'fill-opacity-transition': { duration: 800, delay: 0 },  // Smooth fade-in
+          'fill-color-transition': { duration: 500, delay: 0 }     // Color morph
         }
       });
 
-      // Add outline layer - thin lines since there are many polygons
+      // Add glow/highlight layer for hovered regions
+      map.addLayer({
+        id: 'results-highlight',
+        type: 'fill',
+        source: 'results',
+        paint: {
+          'fill-color': '#ffffff',
+          'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.3, 0],
+          'fill-opacity-transition': { duration: 200, delay: 0 }
+        }
+      });
+
+      // Add outline layer with emphasis
       map.addLayer({
         id: 'results-outline',
         type: 'line',
         source: 'results',
         paint: {
           'line-color': '#333333',
-          'line-width': 0.3
+          'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2, 0.5],
+          'line-width-transition': { duration: 200, delay: 0 }
         }
       });
 
@@ -262,22 +272,65 @@ export function MapDashboard() {
           .addTo(map);
       });
 
-      // Change cursor on hover
-      map.on('mouseenter', 'results-fill', () => {
+      // Track hovered feature for highlight effect
+      let hoveredFeatureId: string | number | null = null;
+
+      // Hover effects with highlight
+      map.on('mousemove', 'results-fill', (e) => {
         map.getCanvas().style.cursor = 'pointer';
+
+        if (e.features && e.features.length > 0) {
+          const feature = e.features[0];
+          const newId = feature.id;
+
+          // Clear previous hover state
+          if (hoveredFeatureId !== null && hoveredFeatureId !== newId) {
+            map.setFeatureState(
+              { source: 'results', id: hoveredFeatureId },
+              { hover: false }
+            );
+          }
+
+          // Set new hover state
+          if (newId !== undefined && newId !== null) {
+            hoveredFeatureId = newId;
+            map.setFeatureState(
+              { source: 'results', id: hoveredFeatureId },
+              { hover: true }
+            );
+          }
+        }
       });
 
       map.on('mouseleave', 'results-fill', () => {
         map.getCanvas().style.cursor = '';
+        // Clear hover state
+        if (hoveredFeatureId !== null) {
+          map.setFeatureState(
+            { source: 'results', id: hoveredFeatureId },
+            { hover: false }
+          );
+          hoveredFeatureId = null;
+        }
       });
 
-      // Fit map to results bounds - use bbox from API if available
-      // Disable sync during programmatic fitBounds
+      // Dramatic camera animation to results bounds
+      // Disable sync during programmatic camera movement
       isProgrammaticMoveRef.current = true;
+
+      // Animation options for broadcast-quality transitions
+      const animationOptions = {
+        padding: 50,
+        duration: 1500,    // 1.5 second fly animation
+        essential: true,   // Ensures animation runs even when prefers-reduced-motion
+        curve: 1.2,        // Smooth easing curve
+        easing: (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2  // Ease-in-out cubic
+      };
+
       if (data.bbox && data.bbox.length === 4) {
         map.fitBounds(
           [[data.bbox[0], data.bbox[1]], [data.bbox[2], data.bbox[3]]],
-          { padding: 50 }
+          animationOptions
         );
       } else if (geojson.features && geojson.features.length > 0) {
         // Fallback: calculate bounds from features
@@ -290,11 +343,11 @@ export function MapDashboard() {
           }
         });
         if (!bounds.isEmpty()) {
-          map.fitBounds(bounds, { padding: 50 });
+          map.fitBounds(bounds, animationOptions);
         }
       }
-      // Re-enable sync after a short delay to let fitBounds complete
-      setTimeout(() => { isProgrammaticMoveRef.current = false; }, 500);
+      // Re-enable sync after animation completes
+      setTimeout(() => { isProgrammaticMoveRef.current = false; }, 1600);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to load election results'
@@ -407,6 +460,7 @@ export function MapDashboard() {
       // Remove existing layers
       try {
         if (map.getLayer('results-fill')) map.removeLayer('results-fill');
+        if (map.getLayer('results-highlight')) map.removeLayer('results-highlight');
         if (map.getLayer('results-outline')) map.removeLayer('results-outline');
         if (map.getSource('results')) map.removeSource('results');
       } catch (e) {
@@ -415,23 +469,40 @@ export function MapDashboard() {
 
       map.addSource('results', { type: 'geojson', data: geojson });
 
+      // Fill layer with smooth transitions
       map.addLayer({
         id: 'results-fill',
         type: 'fill',
         source: 'results',
         paint: {
           'fill-color': ['coalesce', ['get', 'winnerColor'], '#cccccc'],
-          'fill-opacity': 0.7
+          'fill-opacity': 0.75,
+          'fill-opacity-transition': { duration: 800, delay: 0 },
+          'fill-color-transition': { duration: 500, delay: 0 }
         }
       });
 
+      // Highlight layer for hover
+      map.addLayer({
+        id: 'results-highlight',
+        type: 'fill',
+        source: 'results',
+        paint: {
+          'fill-color': '#ffffff',
+          'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.3, 0],
+          'fill-opacity-transition': { duration: 200, delay: 0 }
+        }
+      });
+
+      // Outline layer
       map.addLayer({
         id: 'results-outline',
         type: 'line',
         source: 'results',
         paint: {
           'line-color': '#333333',
-          'line-width': 0.3
+          'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2, 0.5],
+          'line-width-transition': { duration: 200, delay: 0 }
         }
       });
 
@@ -468,23 +539,46 @@ export function MapDashboard() {
           }
         });
 
-        // Change cursor on hover
-        map.on('mouseenter', 'results-fill', () => {
+        // Hover effects with highlight for right map
+        let rightHoveredId: string | number | null = null;
+
+        map.on('mousemove', 'results-fill', (e) => {
           map.getCanvas().style.cursor = 'pointer';
+          if (e.features && e.features.length > 0) {
+            const newId = e.features[0].id;
+            if (rightHoveredId !== null && rightHoveredId !== newId) {
+              map.setFeatureState({ source: 'results', id: rightHoveredId }, { hover: false });
+            }
+            if (newId !== undefined && newId !== null) {
+              rightHoveredId = newId;
+              map.setFeatureState({ source: 'results', id: rightHoveredId }, { hover: true });
+            }
+          }
         });
+
         map.on('mouseleave', 'results-fill', () => {
           map.getCanvas().style.cursor = '';
+          if (rightHoveredId !== null) {
+            map.setFeatureState({ source: 'results', id: rightHoveredId }, { hover: false });
+            rightHoveredId = null;
+          }
         });
       }
 
-      // Fit bounds - disable sync during programmatic fitBounds
+      // Dramatic camera animation for right map
       if (data.bbox && data.bbox.length === 4) {
         isProgrammaticMoveRef.current = true;
         map.fitBounds(
           [[data.bbox[0], data.bbox[1]], [data.bbox[2], data.bbox[3]]],
-          { padding: 50 }
+          {
+            padding: 50,
+            duration: 1500,
+            essential: true,
+            curve: 1.2,
+            easing: (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+          }
         );
-        setTimeout(() => { isProgrammaticMoveRef.current = false; }, 500);
+        setTimeout(() => { isProgrammaticMoveRef.current = false; }, 1600);
       }
     } catch (err) {
       console.error('Error loading map data:', err);

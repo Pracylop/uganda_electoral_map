@@ -8,7 +8,7 @@ interface MapProps {
   touchOptimized?: boolean; // Enable larger touch targets and gestures
 }
 
-const Map = ({ onLoad, className, touchOptimized = true }: MapProps) => {
+const Map = ({ onLoad, className, touchOptimized: _touchOptimized = true }: MapProps) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
 
