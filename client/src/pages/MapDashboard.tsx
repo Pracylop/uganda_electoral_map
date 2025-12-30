@@ -88,6 +88,7 @@ export function MapDashboard() {
   const [rightElection, setRightElection] = useState<number | null>(null);
   const [rightDrillDown, setRightDrillDown] = useState<DrillDownState>(INITIAL_DRILL_DOWN);
   const [isSyncEnabled, setIsSyncEnabled] = useState(true);
+  const [isSwingMode, setIsSwingMode] = useState(false); // Swing visualization toggle
   const rightMapRef = useRef<maplibregl.Map | null>(null);
   const isSyncingRef = useRef(false); // Prevent infinite sync loops
   const isSyncEnabledRef = useRef(true); // Ref for closure access
@@ -624,6 +625,114 @@ export function MapDashboard() {
     }
   }, [rightElection, rightDrillDown.currentLevel, rightDrillDown.currentParentId, isComparisonMode]);
 
+  // Load swing data for comparison visualization
+  const loadSwingData = async (
+    election1Id: number,
+    election2Id: number,
+    level: number = 2,
+    parentId: number | null = null
+  ) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    try {
+      let url = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/map/swing/${election1Id}/${election2Id}?level=${level}`;
+      if (parentId !== null) {
+        url += `&parentId=${parentId}`;
+      }
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to load swing data');
+
+      const data = await response.json();
+
+      // Remove existing layers
+      try {
+        if (map.getLayer('results-fill')) map.removeLayer('results-fill');
+        if (map.getLayer('results-highlight')) map.removeLayer('results-highlight');
+        if (map.getLayer('results-outline')) map.removeLayer('results-outline');
+        if (map.getLayer('swing-labels')) map.removeLayer('swing-labels');
+        if (map.getSource('results')) map.removeSource('results');
+      } catch (e) {
+        console.warn('Error removing existing layers:', e);
+      }
+
+      map.addSource('results', { type: 'geojson', data });
+
+      // Swing fill layer - uses swingColor for regions that changed, gradient for others
+      map.addLayer({
+        id: 'results-fill',
+        type: 'fill',
+        source: 'results',
+        paint: {
+          'fill-color': [
+            'case',
+            ['==', ['get', 'swingType'], 'changed'], ['get', 'swingColor'],
+            ['==', ['get', 'swingType'], 'new'], ['get', 'swingColor'],
+            ['==', ['get', 'swingType'], 'gained'], ['get', 'swingColor'],
+            ['==', ['get', 'swingType'], 'lost'], ['get', 'swingColor'],
+            '#808080' // no_data
+          ],
+          'fill-opacity': [
+            'case',
+            ['==', ['get', 'swingType'], 'changed'], 0.9,  // Highlight changed regions
+            0.7
+          ],
+          'fill-opacity-transition': { duration: 800, delay: 0 }
+        }
+      });
+
+      // Highlight layer for hover
+      map.addLayer({
+        id: 'results-highlight',
+        type: 'fill',
+        source: 'results',
+        paint: {
+          'fill-color': '#ffffff',
+          'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.3, 0]
+        }
+      });
+
+      // Outline - thicker for changed regions
+      map.addLayer({
+        id: 'results-outline',
+        type: 'line',
+        source: 'results',
+        paint: {
+          'line-color': [
+            'case',
+            ['==', ['get', 'swingType'], 'changed'], '#ffff00', // Yellow border for changed
+            '#333333'
+          ],
+          'line-width': [
+            'case',
+            ['==', ['get', 'swingType'], 'changed'], 3,
+            0.5
+          ]
+        }
+      });
+
+      // Fit bounds
+      if (data.bbox && data.bbox.length === 4) {
+        isProgrammaticMoveRef.current = true;
+        map.fitBounds(
+          [[data.bbox[0], data.bbox[1]], [data.bbox[2], data.bbox[3]]],
+          { padding: 50, duration: 1500, essential: true }
+        );
+        setTimeout(() => { isProgrammaticMoveRef.current = false; }, 1600);
+      }
+
+    } catch (err) {
+      console.error('Error loading swing data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load swing data');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -775,9 +884,28 @@ export function MapDashboard() {
       <div className="flex-1 relative">
         {viewMode === 'map' ? (
           <>
-            {/* Sync Toggle - Floating Center Button - Hidden in presentation mode */}
+            {/* Comparison Mode Controls - Floating Center - Hidden in presentation mode */}
             {isComparisonMode && !isPresentationMode && (
-              <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-20">
+              <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-20 flex gap-2">
+                {/* Swing Mode Toggle */}
+                <button
+                  onClick={() => {
+                    setIsSwingMode(!isSwingMode);
+                    // When enabling swing mode, load swing data
+                    if (!isSwingMode && selectedElection && rightElection) {
+                      loadSwingData(selectedElection, rightElection, drillDown.currentLevel, drillDown.currentParentId);
+                    }
+                  }}
+                  className={`px-4 py-2 rounded-lg shadow-lg font-medium transition-colors ${
+                    isSwingMode
+                      ? 'bg-orange-600 text-white hover:bg-orange-700'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                  title="Show swing analysis between elections"
+                >
+                  {isSwingMode ? '📊 Swing View' : '📈 Compare'}
+                </button>
+                {/* Sync Toggle */}
                 <button
                   onClick={() => setIsSyncEnabled(!isSyncEnabled)}
                   className={`px-4 py-2 rounded-lg shadow-lg font-medium transition-colors ${

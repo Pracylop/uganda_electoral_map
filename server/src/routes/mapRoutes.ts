@@ -6,7 +6,8 @@ import {
   getAggregatedResults,
   getAdminUnitDetails,
   getParties,
-  getNationalTotals
+  getNationalTotals,
+  getElectionSwing
 } from '../controllers/mapController';
 
 const router = Router();
@@ -32,5 +33,9 @@ router.get('/parties', getParties);
 
 // GET /api/map/national/:electionId - Get national totals for an election
 router.get('/national/:electionId', getNationalTotals);
+
+// GET /api/map/swing/:election1Id/:election2Id - Get swing analysis between two elections
+// Query params: level (1-5), parentId (optional)
+router.get('/swing/:election1Id/:election2Id', getElectionSwing);
 
 export default router;

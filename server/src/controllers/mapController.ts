@@ -745,3 +745,207 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+// Calculate election swing between two elections
+export const getElectionSwing = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const election1Id = parseInt(req.params.election1Id);
+    const election2Id = parseInt(req.params.election2Id);
+    const { level, parentId } = req.query;
+
+    if (isNaN(election1Id) || isNaN(election2Id)) {
+      res.status(400).json({ error: 'Invalid election IDs' });
+      return;
+    }
+
+    const targetLevel = level ? parseInt(level as string) : 2;
+    const parentIdNum = parentId ? parseInt(parentId as string) : null;
+
+    // Get winner data for election 1
+    const election1Winners = await getWinnersForElection(election1Id, targetLevel, parentIdNum);
+
+    // Get winner data for election 2
+    const election2Winners = await getWinnersForElection(election2Id, targetLevel, parentIdNum);
+
+    // Get geometries for admin units
+    const whereClause: any = { level: targetLevel };
+    if (parentIdNum) {
+      whereClause.parentId = parentIdNum;
+    }
+
+    const units = await prisma.administrativeUnit.findMany({
+      where: whereClause,
+      select: { id: true, name: true, code: true, geometry: true }
+    });
+
+    // Calculate bounding box
+    let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+
+    // Build swing features
+    const features = units
+      .filter(unit => unit.geometry)
+      .map((unit, index) => {
+        const winner1 = election1Winners.get(unit.id);
+        const winner2 = election2Winners.get(unit.id);
+
+        let swingType = 'no_data';
+        let swingColor = '#808080'; // Gray for no data
+        let swingValue = 0;
+        let swingParty = null;
+
+        if (winner1 && winner2) {
+          if (winner1.party !== winner2.party) {
+            swingType = 'changed';
+            // Color based on new winner
+            swingColor = winner2.partyColor || '#ffffff';
+            swingParty = winner2.party;
+          } else {
+            // Same winner - calculate vote share change
+            swingValue = (winner2.votePercent || 0) - (winner1.votePercent || 0);
+            swingType = swingValue > 0 ? 'gained' : swingValue < 0 ? 'lost' : 'stable';
+            swingColor = winner2.partyColor || '#808080';
+            swingParty = winner2.party;
+          }
+        } else if (winner2) {
+          swingType = 'new';
+          swingColor = winner2.partyColor || '#808080';
+          swingParty = winner2.party;
+        }
+
+        // Parse geometry and update bounds
+        let geometry;
+        try {
+          geometry = JSON.parse(unit.geometry!);
+          updateBounds(geometry, (lng: number, lat: number) => {
+            if (lng < minLng) minLng = lng;
+            if (lng > maxLng) maxLng = lng;
+            if (lat < minLat) minLat = lat;
+            if (lat > maxLat) maxLat = lat;
+          });
+        } catch (e) {
+          console.warn(`Invalid geometry for unit ${unit.id}`);
+          return null;
+        }
+
+        return {
+          type: 'Feature',
+          id: index,
+          properties: {
+            unitId: unit.id,
+            unitName: unit.name,
+            level: targetLevel,
+            // Election 1 data
+            winner1Name: winner1?.name || null,
+            winner1Party: winner1?.party || null,
+            winner1Votes: winner1?.votes || 0,
+            winner1Percent: winner1?.votePercent?.toFixed(1) || null,
+            // Election 2 data
+            winner2Name: winner2?.name || null,
+            winner2Party: winner2?.party || null,
+            winner2Votes: winner2?.votes || 0,
+            winner2Percent: winner2?.votePercent?.toFixed(1) || null,
+            // Swing data
+            swingType,
+            swingValue: swingValue.toFixed(1),
+            swingParty,
+            swingColor
+          },
+          geometry
+        };
+      })
+      .filter(f => f !== null);
+
+    const bbox = [minLng, minLat, maxLng, maxLat];
+
+    res.json({
+      type: 'FeatureCollection',
+      features,
+      bbox
+    });
+
+  } catch (error) {
+    console.error('Get election swing error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Helper: Get winners for each admin unit in an election
+async function getWinnersForElection(
+  electionId: number,
+  targetLevel: number,
+  parentId: number | null
+): Promise<Map<number, { name: string; party: string; partyColor: string; votes: number; votePercent: number }>> {
+  const parentFilter = parentId ? `AND target.parent_id = ${parentId}` : '';
+
+  const query = `
+    WITH vote_totals AS (
+      SELECT
+        target.id as unit_id,
+        c.id as candidate_id,
+        p.full_name as candidate_name,
+        pp.abbreviation as party,
+        pp.color as party_color,
+        SUM(r.votes) as total_votes
+      FROM results r
+      JOIN administrative_units parish ON r.admin_unit_id = parish.id
+      ${buildJoinChain(targetLevel).replace('JOIN administrative_units parish ON r.admin_unit_id = parish.id', '')}
+      JOIN candidates c ON r.candidate_id = c.id
+      JOIN persons p ON c.person_id = p.id
+      LEFT JOIN political_parties pp ON c.party_id = pp.id
+      WHERE r.election_id = ${electionId}
+        AND r.status = 'approved'
+        AND parish.level = 5
+        ${parentFilter}
+      GROUP BY target.id, c.id, p.full_name, pp.abbreviation, pp.color
+    ),
+    unit_totals AS (
+      SELECT unit_id, SUM(total_votes) as all_votes
+      FROM vote_totals
+      GROUP BY unit_id
+    ),
+    ranked AS (
+      SELECT
+        vt.*,
+        ut.all_votes,
+        CASE WHEN ut.all_votes > 0 THEN (vt.total_votes::float / ut.all_votes * 100) ELSE 0 END as vote_percent,
+        ROW_NUMBER() OVER (PARTITION BY vt.unit_id ORDER BY vt.total_votes DESC) as rn
+      FROM vote_totals vt
+      JOIN unit_totals ut ON vt.unit_id = ut.unit_id
+    )
+    SELECT unit_id, candidate_name, party, party_color, total_votes, vote_percent
+    FROM ranked
+    WHERE rn = 1
+  `;
+
+  const results = await prisma.$queryRawUnsafe<any[]>(query);
+
+  const winnersMap = new Map();
+  results.forEach(row => {
+    winnersMap.set(row.unit_id, {
+      name: row.candidate_name,
+      party: row.party || 'IND',
+      partyColor: row.party_color || '#808080',
+      votes: Number(row.total_votes),
+      votePercent: Number(row.vote_percent)
+    });
+  });
+
+  return winnersMap;
+}
+
+// Helper: Update bounding box from geometry coordinates
+function updateBounds(geometry: any, update: (lng: number, lat: number) => void) {
+  if (!geometry) return;
+
+  const processCoords = (coords: any[]) => {
+    if (typeof coords[0] === 'number') {
+      update(coords[0], coords[1]);
+    } else {
+      coords.forEach(c => processCoords(c));
+    }
+  };
+
+  if (geometry.coordinates) {
+    processCoords(geometry.coordinates);
+  }
+}
