@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import Map from '../components/Map';
@@ -12,6 +12,53 @@ import {
   createResultsPopupHTML
 } from '../hooks/useElectionMap';
 import 'maplibre-gl/dist/maplibre-gl.css';
+
+// Presentation mode hook for keyboard shortcuts
+function usePresentationMode() {
+  const [isPresentationMode, setIsPresentationMode] = useState(false);
+
+  const togglePresentationMode = useCallback(() => {
+    setIsPresentationMode(prev => {
+      const newValue = !prev;
+      // Request fullscreen when entering presentation mode
+      if (newValue && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(console.error);
+      } else if (!newValue && document.fullscreenElement) {
+        document.exitFullscreen().catch(console.error);
+      }
+      return newValue;
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // F11 or Escape to toggle presentation mode
+      if (e.key === 'F11') {
+        e.preventDefault();
+        togglePresentationMode();
+      } else if (e.key === 'Escape' && isPresentationMode) {
+        setIsPresentationMode(false);
+      }
+    };
+
+    // Listen for fullscreen change events
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && isPresentationMode) {
+        setIsPresentationMode(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [isPresentationMode, togglePresentationMode]);
+
+  return { isPresentationMode, setIsPresentationMode, togglePresentationMode };
+}
 
 interface Election {
   id: number;
@@ -29,6 +76,9 @@ export function MapDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'dashboard'>('map');
   const mapRef = useRef<maplibregl.Map | null>(null);
+
+  // Presentation mode for TV broadcast
+  const { isPresentationMode, togglePresentationMode } = usePresentationMode();
 
   // Drill-down state (left map / single map)
   const [drillDown, setDrillDown] = useState<DrillDownState>(INITIAL_DRILL_DOWN);
@@ -489,8 +539,9 @@ export function MapDashboard() {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-gray-900 text-white overflow-hidden">
-      {/* Header */}
+    <div className={`flex-1 flex flex-col bg-gray-900 text-white overflow-hidden ${isPresentationMode ? 'presentation-mode' : ''}`}>
+      {/* Header - Hidden in presentation mode */}
+      {!isPresentationMode && (
       <div className="bg-gray-800 px-6 py-4 border-b border-gray-700">
         <div className="flex justify-between items-center">
           <div>
@@ -556,6 +607,19 @@ export function MapDashboard() {
                 </button>
               </div>
             )}
+            {/* Presentation Mode Toggle */}
+            {viewMode === 'map' && (
+              <div>
+                <label className="block text-sm font-medium mb-2">Broadcast</label>
+                <button
+                  onClick={togglePresentationMode}
+                  className="px-4 py-2 rounded-md transition-colors bg-purple-600 text-white hover:bg-purple-700"
+                  title="Press F11 to toggle (Esc to exit)"
+                >
+                  Present
+                </button>
+              </div>
+            )}
             {/* Election Selector - only show in single map mode */}
             {!isComparisonMode && (
               <div className="w-64">
@@ -579,9 +643,35 @@ export function MapDashboard() {
           </div>
         </div>
       </div>
+      )}
 
-      {/* Error Display */}
-      {error && (
+      {/* Presentation Mode Overlay - Minimal UI for broadcast */}
+      {isPresentationMode && selectedElection && (
+        <div className="absolute top-0 left-0 right-0 z-50 pointer-events-none">
+          {/* Election Title Bar */}
+          <div className="flex justify-between items-start p-4">
+            <div className="bg-black/70 backdrop-blur-sm px-6 py-3 rounded-lg pointer-events-auto">
+              <h1 className="text-2xl font-bold text-white">
+                {elections.find(e => e.id === selectedElection)?.name}
+              </h1>
+              <p className="text-gray-300 text-sm">
+                {LEVEL_NAMES[drillDown.currentLevel]} View
+                {drillDown.breadcrumb.length > 1 && ` - ${drillDown.breadcrumb[drillDown.breadcrumb.length - 1].name}`}
+              </p>
+            </div>
+            {/* Exit Button */}
+            <button
+              onClick={togglePresentationMode}
+              className="bg-red-600/80 hover:bg-red-600 text-white px-4 py-2 rounded-lg pointer-events-auto transition-colors"
+            >
+              Exit (Esc)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Error Display - Hidden in presentation mode */}
+      {!isPresentationMode && error && (
         <div className="bg-red-900/50 border border-red-700 rounded-md p-4 m-6">
           <p className="text-red-200">{error}</p>
         </div>
@@ -591,8 +681,8 @@ export function MapDashboard() {
       <div className="flex-1 relative">
         {viewMode === 'map' ? (
           <>
-            {/* Sync Toggle - Floating Center Button */}
-            {isComparisonMode && (
+            {/* Sync Toggle - Floating Center Button - Hidden in presentation mode */}
+            {isComparisonMode && !isPresentationMode && (
               <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-20">
                 <button
                   onClick={() => setIsSyncEnabled(!isSyncEnabled)}
@@ -612,8 +702,8 @@ export function MapDashboard() {
             <div className={`relative ${isComparisonMode ? 'w-1/2' : 'w-full'} h-full`}>
               <Map onLoad={handleMapLoad} className="absolute inset-0" />
 
-              {/* Left Election Selector for comparison mode */}
-              {isComparisonMode && (
+              {/* Left Election Selector for comparison mode - Hidden in presentation mode */}
+              {isComparisonMode && !isPresentationMode && (
                 <div className="absolute top-4 right-4 bg-blue-600 px-3 py-1 rounded-lg shadow-lg z-10">
                   <select
                     value={selectedElection || ''}
@@ -629,8 +719,8 @@ export function MapDashboard() {
                 </div>
               )}
 
-              {/* Breadcrumb Navigation */}
-              {selectedElection && (
+              {/* Breadcrumb Navigation - Hidden in presentation mode */}
+              {selectedElection && !isPresentationMode && (
                 <div className="absolute top-4 left-4 bg-gray-800/95 backdrop-blur-sm px-4 py-2 rounded-lg shadow-lg z-10 max-w-[80%]">
                   <div className="flex items-center gap-2 text-sm flex-wrap">
                     {drillDown.breadcrumb.map((item, index) => (
@@ -660,8 +750,8 @@ export function MapDashboard() {
                 </div>
               )}
 
-              {/* Legend */}
-              {selectedElection && (
+              {/* Legend - Hidden in presentation mode */}
+              {selectedElection && !isPresentationMode && (
                 <div className={`absolute bottom-6 left-6 bg-gray-800 rounded-lg shadow-lg ${isComparisonMode ? 'p-2 text-xs' : 'p-4 max-w-xs'}`}>
                   <h3 className={`font-bold ${isComparisonMode ? 'mb-1 text-sm' : 'mb-2'}`}>
                     {LEVEL_NAMES[drillDown.currentLevel]} Map
@@ -685,7 +775,8 @@ export function MapDashboard() {
               <div className="relative w-1/2 h-full border-l border-gray-600">
                 <Map onLoad={handleRightMapLoad} className="absolute inset-0" />
 
-                {/* Right Election Selector */}
+                {/* Right Election Selector - Hidden in presentation mode */}
+                {!isPresentationMode && (
                 <div className="absolute top-4 right-4 bg-green-600 px-3 py-1 rounded-lg shadow-lg z-10">
                   <select
                     value={rightElection || ''}
@@ -699,9 +790,10 @@ export function MapDashboard() {
                     ))}
                   </select>
                 </div>
+                )}
 
-                {/* Right Breadcrumb Navigation */}
-                {rightElection && (
+                {/* Right Breadcrumb Navigation - Hidden in presentation mode */}
+                {rightElection && !isPresentationMode && (
                   <div className="absolute top-4 left-4 bg-gray-800/95 backdrop-blur-sm px-4 py-2 rounded-lg shadow-lg z-10 max-w-[70%]">
                     <div className="flex items-center gap-2 text-sm flex-wrap">
                       {rightDrillDown.breadcrumb.map((item, index) => (
@@ -731,8 +823,8 @@ export function MapDashboard() {
                   </div>
                 )}
 
-                {/* Right Map Legend */}
-                {rightElection && (
+                {/* Right Map Legend - Hidden in presentation mode */}
+                {rightElection && !isPresentationMode && (
                   <div className="absolute bottom-6 left-6 bg-gray-800 p-2 rounded-lg shadow-lg text-xs">
                     <h3 className="font-bold mb-1 text-sm">
                       {LEVEL_NAMES[rightDrillDown.currentLevel]} Map
