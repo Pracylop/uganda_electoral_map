@@ -172,6 +172,22 @@ export const api = {
       _count: { results: number };
     }>(`/api/elections/${id}`),
 
+  getPartySummary: (electionId: number) =>
+    apiRequest<{
+      electionId: number;
+      electionName: string;
+      electoralLevel: number;
+      totalSeats: number;
+      partySummary: Array<{
+        partyId: number | null;
+        partyName: string;
+        abbreviation: string;
+        color: string;
+        seatsWon: number;
+        percentage: number;
+      }>;
+    }>(`/api/elections/${electionId}/party-summary`),
+
   // Results endpoints
   getResultsByElection: (electionId: number) =>
     apiRequest<

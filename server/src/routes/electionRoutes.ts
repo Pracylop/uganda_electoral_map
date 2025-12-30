@@ -6,7 +6,8 @@ import {
   createElection,
   updateElection,
   deleteElection,
-  getCandidatesByElection
+  getCandidatesByElection,
+  getPartySummary
 } from '../controllers/electionController';
 import { authenticate, authorize } from '../middleware/auth';
 
@@ -17,6 +18,7 @@ router.get('/', authenticate, getAllElections);
 router.get('/active', authenticate, getActiveElection);
 router.get('/:id', authenticate, getElectionById);
 router.get('/:id/candidates', authenticate, getCandidatesByElection);
+router.get('/:id/party-summary', authenticate, getPartySummary);
 
 // Admin-only routes
 router.post('/', authenticate, authorize('admin'), createElection);

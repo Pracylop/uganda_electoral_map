@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuthStore } from '../stores/authStore';
+import { PartySummaryWidget } from '../components/PartySummaryWidget';
 
 interface Candidate {
   id: number;
@@ -265,6 +266,13 @@ export function ElectionResults() {
                 Please select {electoralLevel === 3 ? 'a district and constituency' : 'a district'} to view candidate results for that race.
               </p>
             )}
+          </div>
+        )}
+
+        {/* Party Summary Widget - Only for MP elections */}
+        {electoralLevel >= 2 && (
+          <div className="mb-8">
+            <PartySummaryWidget electionId={election.id} />
           </div>
         )}
 

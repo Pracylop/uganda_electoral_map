@@ -225,6 +225,159 @@ export const deleteElection = async (req: Request, res: Response): Promise<void>
   }
 };
 
+// Get party summary (seats won by each party) for an election
+export const getPartySummary = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const electionId = parseInt(req.params.id);
+
+    if (isNaN(electionId)) {
+      res.status(400).json({ error: 'Invalid election ID' });
+      return;
+    }
+
+    // Get election details
+    const election = await prisma.election.findUnique({
+      where: { id: electionId },
+      include: { electionType: true }
+    });
+
+    if (!election) {
+      res.status(404).json({ error: 'Election not found' });
+      return;
+    }
+
+    // Only applicable for elections at level 2 (District) or 3 (Constituency)
+    const electoralLevel = election.electionType.electoralLevel;
+    if (electoralLevel === 0) {
+      // Presidential - return single winner
+      res.json({
+        electionId,
+        electionName: election.name,
+        electoralLevel,
+        message: 'Presidential elections have a single national winner',
+        partySummary: []
+      });
+      return;
+    }
+
+    // Get all approved results with candidate and party info
+    const results = await prisma.result.findMany({
+      where: {
+        electionId,
+        status: 'approved'
+      },
+      include: {
+        candidate: {
+          include: {
+            party: { select: { id: true, name: true, abbreviation: true, color: true } }
+          }
+        }
+      }
+    });
+
+    // Get unique electoral areas from candidates
+    const candidates = await prisma.candidate.findMany({
+      where: { electionId },
+      select: {
+        id: true,
+        electoralAreaId: true,
+        partyId: true,
+        party: { select: { id: true, name: true, abbreviation: true, color: true } }
+      }
+    });
+
+    // Group results by electoral area and find winner
+    const votesByAreaAndCandidate = new Map<number, Map<number, number>>();
+
+    for (const result of results) {
+      const candidate = candidates.find(c => c.id === result.candidateId);
+      if (!candidate || !candidate.electoralAreaId) continue;
+
+      const areaId = candidate.electoralAreaId;
+      if (!votesByAreaAndCandidate.has(areaId)) {
+        votesByAreaAndCandidate.set(areaId, new Map());
+      }
+
+      const areaVotes = votesByAreaAndCandidate.get(areaId)!;
+      const currentVotes = areaVotes.get(result.candidateId) || 0;
+      areaVotes.set(result.candidateId, currentVotes + result.votes);
+    }
+
+    // Find winner per area
+    const winners: Array<{ candidateId: number; partyId: number | null }> = [];
+
+    for (const [areaId, candidateVotes] of votesByAreaAndCandidate) {
+      let maxVotes = 0;
+      let winnerId: number | null = null;
+
+      for (const [candidateId, votes] of candidateVotes) {
+        if (votes > maxVotes) {
+          maxVotes = votes;
+          winnerId = candidateId;
+        }
+      }
+
+      if (winnerId) {
+        const candidate = candidates.find(c => c.id === winnerId);
+        winners.push({
+          candidateId: winnerId,
+          partyId: candidate?.partyId || null
+        });
+      }
+    }
+
+    // Group winners by party
+    const partySeats = new Map<number | null, number>();
+    for (const winner of winners) {
+      const current = partySeats.get(winner.partyId) || 0;
+      partySeats.set(winner.partyId, current + 1);
+    }
+
+    // Get party details and build summary
+    const parties = await prisma.politicalParty.findMany({
+      where: { id: { in: Array.from(partySeats.keys()).filter(id => id !== null) as number[] } }
+    });
+
+    const partyMap = new Map(parties.map(p => [p.id, p]));
+    const totalSeats = winners.length;
+
+    const partySummary = Array.from(partySeats.entries())
+      .map(([partyId, seatsWon]) => {
+        if (partyId === null) {
+          return {
+            partyId: null,
+            partyName: 'Independent',
+            abbreviation: 'IND',
+            color: '#808080',
+            seatsWon,
+            percentage: totalSeats > 0 ? Math.round((seatsWon / totalSeats) * 10000) / 100 : 0
+          };
+        }
+        const party = partyMap.get(partyId);
+        return {
+          partyId,
+          partyName: party?.name || 'Unknown',
+          abbreviation: party?.abbreviation || '?',
+          color: party?.color || '#808080',
+          seatsWon,
+          percentage: totalSeats > 0 ? Math.round((seatsWon / totalSeats) * 10000) / 100 : 0
+        };
+      })
+      .sort((a, b) => b.seatsWon - a.seatsWon);
+
+    res.json({
+      electionId,
+      electionName: election.name,
+      electoralLevel,
+      totalSeats,
+      partySummary
+    });
+  } catch (error) {
+    console.error('Get party summary error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 // Get all candidates for an election
 export const getCandidatesByElection = async (req: Request, res: Response): Promise<void> => {
   try {
