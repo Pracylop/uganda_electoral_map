@@ -229,6 +229,7 @@ export const deleteElection = async (req: Request, res: Response): Promise<void>
 export const getPartySummary = async (req: Request, res: Response): Promise<void> => {
   try {
     const electionId = parseInt(req.params.id);
+    const districtId = req.query.districtId ? parseInt(req.query.districtId as string) : null;
 
     if (isNaN(electionId)) {
       res.status(400).json({ error: 'Invalid election ID' });
@@ -258,6 +259,17 @@ export const getPartySummary = async (req: Request, res: Response): Promise<void
         partySummary: []
       });
       return;
+    }
+
+    // For Constituency MP elections, get constituencies within the selected district
+    let validElectoralAreas: Set<number> | null = null;
+    if (electoralLevel === 3 && districtId) {
+      // Get all constituencies within this district
+      const constituencies = await prisma.administrativeUnit.findMany({
+        where: { level: 3, parentId: districtId },
+        select: { id: true }
+      });
+      validElectoralAreas = new Set(constituencies.map(c => c.id));
     }
 
     // Get all approved results with candidate and party info
@@ -294,6 +306,10 @@ export const getPartySummary = async (req: Request, res: Response): Promise<void
       if (!candidate || !candidate.electoralAreaId) continue;
 
       const areaId = candidate.electoralAreaId;
+
+      // If filtering by district, skip areas not in the district
+      if (validElectoralAreas && !validElectoralAreas.has(areaId)) continue;
+
       if (!votesByAreaAndCandidate.has(areaId)) {
         votesByAreaAndCandidate.set(areaId, new Map());
       }

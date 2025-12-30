@@ -270,10 +270,36 @@ export function ElectionResults() {
         )}
 
         {/* Party Summary Widget - Only for MP elections */}
+        {/* Show widget when:
+            - Level 2 (District Woman MP): Only when no district selected (national view)
+            - Level 3 (Constituency MP): When no constituency selected (national or district view)
+        */}
         {electoralLevel >= 2 && (
-          <div className="mb-8">
-            <PartySummaryWidget electionId={election.id} />
-          </div>
+          electoralLevel === 2 ? (
+            // District Woman MP - only show when no district selected
+            !selectedDistrictId && (
+              <div className="mb-8">
+                <PartySummaryWidget
+                  electionId={election.id}
+                  title="National Party Summary"
+                />
+              </div>
+            )
+          ) : (
+            // Constituency MP - show when no constituency selected
+            !selectedConstituencyId && (
+              <div className="mb-8">
+                <PartySummaryWidget
+                  electionId={election.id}
+                  districtId={selectedDistrictId}
+                  title={selectedDistrictId
+                    ? `District Constituency Results`
+                    : 'National Party Summary'
+                  }
+                />
+              </div>
+            )
+          )
         )}
 
         {/* Summary Cards */}

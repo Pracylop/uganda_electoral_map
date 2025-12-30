@@ -20,22 +20,29 @@ interface PartySummaryData {
 
 interface PartySummaryWidgetProps {
   electionId: number;
+  districtId?: number | null;
+  title?: string;
   compact?: boolean;
 }
 
-export function PartySummaryWidget({ electionId, compact = false }: PartySummaryWidgetProps) {
+export function PartySummaryWidget({
+  electionId,
+  districtId = null,
+  title,
+  compact = false
+}: PartySummaryWidgetProps) {
   const [data, setData] = useState<PartySummaryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadPartySummary();
-  }, [electionId]);
+  }, [electionId, districtId]);
 
   const loadPartySummary = async () => {
     try {
       setIsLoading(true);
-      const result = await api.getPartySummary(electionId);
+      const result = await api.getPartySummary(electionId, districtId || undefined);
       setData(result);
       setError(null);
     } catch (err) {
@@ -85,11 +92,11 @@ export function PartySummaryWidget({ electionId, compact = false }: PartySummary
       {/* Header */}
       <div className="bg-gray-700 px-4 py-3">
         <h3 className="text-lg font-bold text-white">
-          {compact ? 'Party Seats' : 'Seats Won by Party'}
+          {title || (compact ? 'Party Seats' : 'Seats Won by Party')}
         </h3>
         {!compact && (
           <p className="text-gray-400 text-sm">
-            {data.totalSeats} total seats
+            {data.totalSeats} {data.totalSeats === 1 ? 'seat' : 'seats'}
           </p>
         )}
       </div>

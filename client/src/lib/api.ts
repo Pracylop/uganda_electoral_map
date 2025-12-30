@@ -172,8 +172,11 @@ export const api = {
       _count: { results: number };
     }>(`/api/elections/${id}`),
 
-  getPartySummary: (electionId: number) =>
-    apiRequest<{
+  getPartySummary: (electionId: number, districtId?: number) => {
+    const params = new URLSearchParams();
+    if (districtId) params.append('districtId', districtId.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return apiRequest<{
       electionId: number;
       electionName: string;
       electoralLevel: number;
@@ -186,7 +189,8 @@ export const api = {
         seatsWon: number;
         percentage: number;
       }>;
-    }>(`/api/elections/${electionId}/party-summary`),
+    }>(`/api/elections/${electionId}/party-summary${query}`);
+  },
 
   // Results endpoints
   getResultsByElection: (electionId: number) =>
