@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 export type ViewMode = 'map' | 'dashboard' | 'comparison' | 'issues';
 export type SidebarPosition = 'left' | 'right';
+export type IssuesInteractionMode = 'stats' | 'view';
 
 export interface DrillDownLevel {
   level: number; // 1=national, 2=region, 3=district, 4=constituency, 5=parish
@@ -28,6 +29,7 @@ interface BroadcastState {
   };
   selectedIssueDistrictId: number | null; // For district-specific summary
   selectedIssueDistrictName: string | null;
+  issuesInteractionMode: IssuesInteractionMode; // 'stats' = click shows panel, 'view' = click shows tooltip
 
   // View State
   viewMode: ViewMode;
@@ -90,6 +92,8 @@ interface BroadcastState {
   clearIssuesDateRange: () => void;
   selectIssueDistrict: (districtId: number | null, districtName: string | null) => void;
   clearIssueDistrict: () => void;
+  toggleIssuesInteractionMode: () => void;
+  setIssuesInteractionMode: (mode: IssuesInteractionMode) => void;
 
   // Reset
   reset: () => void;
@@ -111,6 +115,7 @@ const initialState = {
   },
   selectedIssueDistrictId: null as number | null,
   selectedIssueDistrictName: null as string | null,
+  issuesInteractionMode: 'stats' as IssuesInteractionMode,
   viewMode: 'map' as ViewMode,
   selectedElectionId: null,
   comparisonElectionId: null,
@@ -334,6 +339,12 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
     selectedIssueDistrictId: null,
     selectedIssueDistrictName: null,
   }),
+
+  toggleIssuesInteractionMode: () => set((state) => ({
+    issuesInteractionMode: state.issuesInteractionMode === 'stats' ? 'view' : 'stats',
+  })),
+
+  setIssuesInteractionMode: (mode) => set({ issuesInteractionMode: mode }),
 
   // Reset
   reset: () => set(initialState),

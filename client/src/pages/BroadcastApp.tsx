@@ -38,6 +38,7 @@ export function BroadcastApp() {
     toggleAnnotationMode,
     toggleLayersPanel,
     toggleIssuesPanel,
+    toggleIssuesInteractionMode,
     toggleSearch,
     toggleElectionSelector,
     setViewMode,
@@ -147,6 +148,13 @@ export function BroadcastApp() {
             toggleIssuesPanel();
           }
           break;
+        case 't':
+        case 'T':
+          // Toggle interaction mode (stats vs view) - only when in issues view
+          if (viewMode === 'issues') {
+            toggleIssuesInteractionMode();
+          }
+          break;
         case 'l':
         case 'L':
           toggleLayersPanel();
@@ -205,6 +213,7 @@ export function BroadcastApp() {
     toggleAnnotationMode,
     toggleLayersPanel,
     toggleIssuesPanel,
+    toggleIssuesInteractionMode,
     toggleSearch,
     toggleElectionSelector,
     resetToNational,

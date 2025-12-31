@@ -23,6 +23,7 @@ Keyboard shortcuts available when using the Broadcast App (`/broadcast`).
 | `E` | Open election selector |
 | `L` | Toggle layers/map settings panel |
 | `F` | Toggle issues filter panel (Issues view only) |
+| `T` | Toggle interaction mode: Stats/View (Issues view only) |
 | `A` | Toggle annotation mode |
 | `[` | Collapse sidebar |
 | `]` | Expand sidebar |

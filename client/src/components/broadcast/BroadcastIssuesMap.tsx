@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { Filter } from 'lucide-react';
+import { Filter, MousePointer, BarChart3 } from 'lucide-react';
 import { useBroadcastStore } from '../../stores/broadcastStore';
 import { api } from '../../lib/api';
 
@@ -31,6 +31,8 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
     toggleIssuesPanel,
     issuesPanelOpen,
     selectIssueDistrict,
+    issuesInteractionMode,
+    toggleIssuesInteractionMode,
   } = useBroadcastStore();
 
   // Initialize map
@@ -244,7 +246,10 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
     setIsDataLoading(false);
   }, [isLoaded, selectedCategoryIds, issuesDateRange]);
 
-  // Handle district click - select for summary panel
+  // Popup for view mode
+  const popup = useRef<maplibregl.Popup | null>(null);
+
+  // Handle district click - behavior depends on interaction mode
   useEffect(() => {
     const mapInstance = map.current;
     if (!mapInstance || !isLoaded) return;
@@ -254,12 +259,33 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
       const props = e.features[0].properties;
       if (!props) return;
 
-      // Select this district for the summary panel
-      selectIssueDistrict(props.unitId, props.unitName);
+      if (issuesInteractionMode === 'stats') {
+        // Stats mode: Select district and open panel
+        selectIssueDistrict(props.unitId, props.unitName);
+        if (!issuesPanelOpen) {
+          toggleIssuesPanel();
+        }
+      } else {
+        // View mode: Show quick tooltip popup
+        // Remove existing popup
+        if (popup.current) {
+          popup.current.remove();
+        }
 
-      // Open the panel if not already open
-      if (!issuesPanelOpen) {
-        toggleIssuesPanel();
+        const issueCount = props.issueCount || 0;
+        popup.current = new maplibregl.Popup({
+          closeButton: true,
+          closeOnClick: true,
+          maxWidth: '200px',
+        })
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div style="padding: 4px;">
+              <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">${props.unitName}</div>
+              <div style="font-size: 13px; color: #666;">${issueCount} issue${issueCount !== 1 ? 's' : ''}</div>
+            </div>
+          `)
+          .addTo(mapInstance);
       }
     };
 
@@ -267,8 +293,11 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
 
     return () => {
       mapInstance.off('click', 'issues-choropleth-fill', handleClick);
+      if (popup.current) {
+        popup.current.remove();
+      }
     };
-  }, [isLoaded, selectIssueDistrict, issuesPanelOpen, toggleIssuesPanel]);
+  }, [isLoaded, selectIssueDistrict, issuesPanelOpen, toggleIssuesPanel, issuesInteractionMode]);
 
   // Load issues choropleth data when map is ready or filters change
   useEffect(() => {
@@ -340,6 +369,33 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
           </button>
         );
       })()}
+
+      {/* Interaction Mode Toggle */}
+      <button
+        onClick={toggleIssuesInteractionMode}
+        className={`
+          absolute top-[4.5rem] right-4 z-10
+          h-12 px-3 rounded-lg
+          flex items-center gap-2
+          transition-all duration-200
+          bg-gray-900/90 backdrop-blur-sm
+          ${issuesInteractionMode === 'stats' ? 'text-yellow-500' : 'text-blue-400'}
+          hover:bg-gray-800
+        `}
+        title={issuesInteractionMode === 'stats' ? 'Stats Mode: Click shows statistics panel' : 'View Mode: Click shows quick popup'}
+      >
+        {issuesInteractionMode === 'stats' ? (
+          <>
+            <BarChart3 size={20} />
+            <span className="text-sm font-medium">Stats</span>
+          </>
+        ) : (
+          <>
+            <MousePointer size={20} />
+            <span className="text-sm font-medium">View</span>
+          </>
+        )}
+      </button>
 
       {/* Legend */}
       <div className="absolute bottom-4 left-4 bg-gray-900/90 backdrop-blur-sm rounded-lg p-4 z-10">
