@@ -24,7 +24,14 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
     maxIssuesPerDistrict: number;
   } | null>(null);
 
-  const { basemapOpacity, selectedCategoryIds, toggleIssuesPanel, issuesPanelOpen } = useBroadcastStore();
+  const {
+    basemapOpacity,
+    selectedCategoryIds,
+    issuesDateRange,
+    toggleIssuesPanel,
+    issuesPanelOpen,
+    selectIssueDistrict,
+  } = useBroadcastStore();
 
   // Initialize map
   useEffect(() => {
@@ -126,14 +133,17 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
     }
   }, [basemapOpacity]);
 
+  // Track if initial bounds have been set
+  const initialBoundsSet = useRef(false);
+
   // Load choropleth data function
-  const loadChoropleth = useCallback(async (categoryIds: number[]) => {
+  const loadChoropleth = useCallback(async () => {
     const mapInstance = map.current;
     if (!mapInstance || !isLoaded) return;
 
     setIsDataLoading(true);
 
-    // Remove existing layers
+    // Remove existing layers and event handlers
     try {
       ['issues-choropleth-fill', 'issues-choropleth-line'].forEach(layerId => {
         if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId);
@@ -146,14 +156,22 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
     }
 
     try {
-      // Pass category filter if any categories are selected
-      const params: { categoryId?: number } = {};
-      if (categoryIds.length === 1) {
-        // API only supports single category filter for now
-        params.categoryId = categoryIds[0];
+      // Build params with all filters
+      const params: {
+        categoryIds?: number[];
+        startDate?: string;
+        endDate?: string;
+      } = {};
+
+      if (selectedCategoryIds.length > 0) {
+        params.categoryIds = selectedCategoryIds;
       }
-      // Note: For multiple categories, we'd need to update the API
-      // For now, if multiple are selected, we load all and filter client-side would be needed
+      if (issuesDateRange.startDate) {
+        params.startDate = issuesDateRange.startDate;
+      }
+      if (issuesDateRange.endDate) {
+        params.endDate = issuesDateRange.endDate;
+      }
 
       const choroplethData = await api.getIssuesChoropleth(params);
       setMetadata(choroplethData.metadata);
@@ -187,28 +205,6 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
         },
       });
 
-      // Click handler for districts
-      mapInstance.on('click', 'issues-choropleth-fill', (e) => {
-        if (!e.features || e.features.length === 0) return;
-        const props = e.features[0].properties;
-        if (!props) return;
-
-        new maplibregl.Popup()
-          .setLngLat(e.lngLat)
-          .setHTML(`
-            <div style="padding: 12px; font-family: system-ui; min-width: 180px;">
-              <h3 style="font-weight: bold; margin: 0 0 8px 0; font-size: 16px;">${props.unitName}</h3>
-              <div style="font-size: 24px; font-weight: bold; color: ${props.fillColor};">
-                ${props.issueCount}
-              </div>
-              <div style="color: #666; font-size: 14px;">
-                issue${props.issueCount !== 1 ? 's' : ''} reported
-              </div>
-            </div>
-          `)
-          .addTo(mapInstance);
-      });
-
       // Hover effect
       mapInstance.on('mouseenter', 'issues-choropleth-fill', () => {
         mapInstance.getCanvas().style.cursor = 'pointer';
@@ -218,7 +214,7 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
       });
 
       // Fit bounds to Uganda (only on initial load)
-      if (categoryIds.length === 0) {
+      if (!initialBoundsSet.current) {
         const bounds = new maplibregl.LngLatBounds();
         choroplethData.features.forEach((feature: any) => {
           if (feature.geometry?.coordinates) {
@@ -238,6 +234,7 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
             padding: { top: 80, bottom: 80, left: 80, right: 80 },
             duration: 1500,
           });
+          initialBoundsSet.current = true;
         }
       }
     } catch (error) {
@@ -245,13 +242,39 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
     }
 
     setIsDataLoading(false);
-  }, [isLoaded]);
+  }, [isLoaded, selectedCategoryIds, issuesDateRange]);
+
+  // Handle district click - select for summary panel
+  useEffect(() => {
+    const mapInstance = map.current;
+    if (!mapInstance || !isLoaded) return;
+
+    const handleClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      if (!e.features || e.features.length === 0) return;
+      const props = e.features[0].properties;
+      if (!props) return;
+
+      // Select this district for the summary panel
+      selectIssueDistrict(props.unitId, props.unitName);
+
+      // Open the panel if not already open
+      if (!issuesPanelOpen) {
+        toggleIssuesPanel();
+      }
+    };
+
+    mapInstance.on('click', 'issues-choropleth-fill', handleClick);
+
+    return () => {
+      mapInstance.off('click', 'issues-choropleth-fill', handleClick);
+    };
+  }, [isLoaded, selectIssueDistrict, issuesPanelOpen, toggleIssuesPanel]);
 
   // Load issues choropleth data when map is ready or filters change
   useEffect(() => {
     if (!map.current || !isLoaded) return;
-    loadChoropleth(selectedCategoryIds);
-  }, [isLoaded, selectedCategoryIds, loadChoropleth]);
+    loadChoropleth();
+  }, [isLoaded, loadChoropleth]);
 
   return (
     <div className="relative w-full h-full">
@@ -268,37 +291,55 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
             {metadata.totalIssues} issues in {metadata.districtsWithIssues} districts
           </p>
         )}
-        {selectedCategoryIds.length > 0 && (
-          <p className="text-yellow-500 text-xs mt-1">
-            Filtered by {selectedCategoryIds.length} category{selectedCategoryIds.length > 1 ? 'ies' : ''}
-          </p>
+        {(selectedCategoryIds.length > 0 || issuesDateRange.startDate || issuesDateRange.endDate) && (
+          <div className="text-yellow-500 text-xs mt-1 space-y-0.5">
+            {selectedCategoryIds.length > 0 && (
+              <p>{selectedCategoryIds.length} category{selectedCategoryIds.length > 1 ? 'ies' : ''} selected</p>
+            )}
+            {(issuesDateRange.startDate || issuesDateRange.endDate) && (
+              <p>
+                {issuesDateRange.startDate && issuesDateRange.endDate
+                  ? `${issuesDateRange.startDate} to ${issuesDateRange.endDate}`
+                  : issuesDateRange.startDate
+                    ? `From ${issuesDateRange.startDate}`
+                    : `Until ${issuesDateRange.endDate}`
+                }
+              </p>
+            )}
+          </div>
         )}
       </div>
 
       {/* Filter Button */}
-      <button
-        onClick={toggleIssuesPanel}
-        className={`
-          absolute top-4 right-4 z-10
-          w-12 h-12 rounded-lg
-          flex items-center justify-center
-          transition-all duration-200
-          ${issuesPanelOpen
-            ? 'bg-yellow-500 text-gray-900'
-            : 'bg-gray-900/90 text-white hover:bg-gray-800'
-          }
-          backdrop-blur-sm
-          ${selectedCategoryIds.length > 0 ? 'ring-2 ring-yellow-500' : ''}
-        `}
-        title="Filter & Statistics (F)"
-      >
-        <Filter size={24} />
-        {selectedCategoryIds.length > 0 && !issuesPanelOpen && (
-          <span className="absolute -top-1 -right-1 w-5 h-5 bg-yellow-500 text-gray-900 text-xs font-bold rounded-full flex items-center justify-center">
-            {selectedCategoryIds.length}
-          </span>
-        )}
-      </button>
+      {(() => {
+        const hasFilters = selectedCategoryIds.length > 0 || issuesDateRange.startDate || issuesDateRange.endDate;
+        const filterCount = selectedCategoryIds.length + (issuesDateRange.startDate ? 1 : 0) + (issuesDateRange.endDate ? 1 : 0);
+        return (
+          <button
+            onClick={toggleIssuesPanel}
+            className={`
+              absolute top-4 right-4 z-10
+              w-12 h-12 rounded-lg
+              flex items-center justify-center
+              transition-all duration-200
+              ${issuesPanelOpen
+                ? 'bg-yellow-500 text-gray-900'
+                : 'bg-gray-900/90 text-white hover:bg-gray-800'
+              }
+              backdrop-blur-sm
+              ${hasFilters ? 'ring-2 ring-yellow-500' : ''}
+            `}
+            title="Filter & Statistics (F)"
+          >
+            <Filter size={24} />
+            {hasFilters && !issuesPanelOpen && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-yellow-500 text-gray-900 text-xs font-bold rounded-full flex items-center justify-center">
+                {filterCount}
+              </span>
+            )}
+          </button>
+        );
+      })()}
 
       {/* Legend */}
       <div className="absolute bottom-4 left-4 bg-gray-900/90 backdrop-blur-sm rounded-lg p-4 z-10">

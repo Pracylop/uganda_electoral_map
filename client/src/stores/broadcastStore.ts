@@ -22,6 +22,12 @@ interface BroadcastState {
 
   // Issues filters
   selectedCategoryIds: number[]; // Empty means all categories
+  issuesDateRange: {
+    startDate: string | null;
+    endDate: string | null;
+  };
+  selectedIssueDistrictId: number | null; // For district-specific summary
+  selectedIssueDistrictName: string | null;
 
   // View State
   viewMode: ViewMode;
@@ -80,6 +86,10 @@ interface BroadcastState {
   toggleCategoryFilter: (categoryId: number) => void;
   setCategoryFilters: (categoryIds: number[]) => void;
   clearCategoryFilters: () => void;
+  setIssuesDateRange: (startDate: string | null, endDate: string | null) => void;
+  clearIssuesDateRange: () => void;
+  selectIssueDistrict: (districtId: number | null, districtName: string | null) => void;
+  clearIssueDistrict: () => void;
 
   // Reset
   reset: () => void;
@@ -95,6 +105,12 @@ const initialState = {
   searchOpen: false,
   electionSelectorOpen: false,
   selectedCategoryIds: [] as number[],
+  issuesDateRange: {
+    startDate: null as string | null,
+    endDate: null as string | null,
+  },
+  selectedIssueDistrictId: null as number | null,
+  selectedIssueDistrictName: null as string | null,
   viewMode: 'map' as ViewMode,
   selectedElectionId: null,
   comparisonElectionId: null,
@@ -300,6 +316,24 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
   setCategoryFilters: (categoryIds) => set({ selectedCategoryIds: categoryIds }),
 
   clearCategoryFilters: () => set({ selectedCategoryIds: [] }),
+
+  setIssuesDateRange: (startDate, endDate) => set({
+    issuesDateRange: { startDate, endDate },
+  }),
+
+  clearIssuesDateRange: () => set({
+    issuesDateRange: { startDate: null, endDate: null },
+  }),
+
+  selectIssueDistrict: (districtId, districtName) => set({
+    selectedIssueDistrictId: districtId,
+    selectedIssueDistrictName: districtName,
+  }),
+
+  clearIssueDistrict: () => set({
+    selectedIssueDistrictId: null,
+    selectedIssueDistrictName: null,
+  }),
 
   // Reset
   reset: () => set(initialState),

@@ -273,14 +273,34 @@ export const getCategories = async (_req: Request, res: Response): Promise<void>
 /**
  * Get issue statistics
  * GET /api/issues/stats
+ * Query params: districtId, categoryIds, startDate, endDate
  */
 export const getIssueStats = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { districtId } = req.query;
+    const { districtId, categoryIds, startDate, endDate } = req.query;
 
     const where: any = {};
     if (districtId) {
       where.districtId = parseInt(districtId as string);
+    }
+
+    // Support multiple category IDs (comma-separated)
+    if (categoryIds) {
+      const ids = (categoryIds as string).split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+      if (ids.length > 0) {
+        where.issueCategoryId = { in: ids };
+      }
+    }
+
+    // Date range filter
+    if (startDate || endDate) {
+      where.date = {};
+      if (startDate) {
+        where.date.gte = new Date(startDate as string);
+      }
+      if (endDate) {
+        where.date.lte = new Date(endDate as string);
+      }
     }
 
     const [
@@ -400,14 +420,20 @@ function getDefaultColor(code: string): string {
  */
 export const getIssuesChoropleth = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { categoryId, startDate, endDate, severity } = req.query;
+    const { categoryIds, categoryId, startDate, endDate, severity } = req.query;
 
     // Build where clause for issues
     const where: any = {
       districtId: { not: null }
     };
 
-    if (categoryId) {
+    // Support multiple category IDs (comma-separated) or single categoryId
+    if (categoryIds) {
+      const ids = (categoryIds as string).split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+      if (ids.length > 0) {
+        where.issueCategoryId = { in: ids };
+      }
+    } else if (categoryId) {
       where.issueCategoryId = parseInt(categoryId as string);
     }
 

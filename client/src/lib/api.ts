@@ -493,8 +493,20 @@ export const api = {
     }>(`/api/issues/geojson${query}`);
   },
 
-  getIssueStats: (districtId?: number) => {
-    const query = districtId ? `?districtId=${districtId}` : '';
+  getIssueStats: (params?: {
+    districtId?: number;
+    categoryIds?: number[];
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.districtId) searchParams.append('districtId', params.districtId.toString());
+    if (params?.categoryIds && params.categoryIds.length > 0) {
+      searchParams.append('categoryIds', params.categoryIds.join(','));
+    }
+    if (params?.startDate) searchParams.append('startDate', params.startDate);
+    if (params?.endDate) searchParams.append('endDate', params.endDate);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
     return apiRequest<{
       total: number;
       byCategory: Array<{ category: string; categoryCode: string; color: string | null; count: number }>;
@@ -504,13 +516,15 @@ export const api = {
   },
 
   getIssuesChoropleth: (params?: {
-    categoryId?: number;
+    categoryIds?: number[];
     startDate?: string;
     endDate?: string;
     severity?: number;
   }) => {
     const searchParams = new URLSearchParams();
-    if (params?.categoryId) searchParams.append('categoryId', params.categoryId.toString());
+    if (params?.categoryIds && params.categoryIds.length > 0) {
+      searchParams.append('categoryIds', params.categoryIds.join(','));
+    }
     if (params?.startDate) searchParams.append('startDate', params.startDate);
     if (params?.endDate) searchParams.append('endDate', params.endDate);
     if (params?.severity) searchParams.append('severity', params.severity.toString());

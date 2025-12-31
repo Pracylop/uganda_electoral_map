@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Filter, BarChart3, MapPin, RefreshCw } from 'lucide-react';
+import { X, Filter, BarChart3, MapPin, RefreshCw, Calendar, XCircle } from 'lucide-react';
 import { useBroadcastStore } from '../../stores/broadcastStore';
 import { api } from '../../lib/api';
 
@@ -48,40 +48,68 @@ export function IssuesPanel() {
     selectedCategoryIds,
     toggleCategoryFilter,
     clearCategoryFilters,
+    issuesDateRange,
+    setIssuesDateRange,
+    clearIssuesDateRange,
+    selectedIssueDistrictId,
+    selectedIssueDistrictName,
+    clearIssueDistrict,
   } = useBroadcastStore();
 
   const [categories, setCategories] = useState<IssueCategory[]>([]);
   const [stats, setStats] = useState<IssueStats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load categories and stats
+  // Load categories once
   useEffect(() => {
-    const loadData = async () => {
+    const loadCategories = async () => {
+      try {
+        const categoriesData = await api.getIssueCategories();
+        setCategories(categoriesData);
+      } catch (error) {
+        console.error('Failed to load categories:', error);
+      }
+    };
+    loadCategories();
+  }, []);
+
+  // Load stats when filters change
+  useEffect(() => {
+    const loadStats = async () => {
+      if (!issuesPanelOpen) return;
+
       setIsLoading(true);
       try {
-        const [categoriesData, statsData] = await Promise.all([
-          api.getIssueCategories(),
-          api.getIssueStats(),
-        ]);
-        setCategories(categoriesData);
+        const statsData = await api.getIssueStats({
+          districtId: selectedIssueDistrictId || undefined,
+          categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
+          startDate: issuesDateRange.startDate || undefined,
+          endDate: issuesDateRange.endDate || undefined,
+        });
         setStats(statsData);
       } catch (error) {
-        console.error('Failed to load issues data:', error);
+        console.error('Failed to load stats:', error);
       }
       setIsLoading(false);
     };
 
-    if (issuesPanelOpen) {
-      loadData();
-    }
-  }, [issuesPanelOpen]);
+    loadStats();
+  }, [issuesPanelOpen, selectedCategoryIds, issuesDateRange, selectedIssueDistrictId]);
 
   if (!issuesPanelOpen) return null;
 
   const isLeft = sidebarPosition === 'left';
-
-  // When sidebar is on left, panel appears on right (and vice versa)
   const panelPosition = isLeft ? 'right' : 'left';
+
+  const hasActiveFilters = selectedCategoryIds.length > 0 ||
+    issuesDateRange.startDate ||
+    issuesDateRange.endDate;
+
+  const clearAllFilters = () => {
+    clearCategoryFilters();
+    clearIssuesDateRange();
+    clearIssueDistrict();
+  };
 
   return (
     <>
@@ -110,7 +138,7 @@ export function IssuesPanel() {
         `}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-4 border-b border-gray-700 flex-shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 flex-shrink-0">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
             <Filter size={20} className="text-yellow-500" />
             Issues Control
@@ -126,142 +154,177 @@ export function IssuesPanel() {
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <RefreshCw className="w-6 h-6 text-yellow-500 animate-spin" />
+          {/* ========== FILTERS SECTION ========== */}
+          <div className="border-b border-gray-800">
+            <div className="px-4 py-3 bg-gray-800/50">
+              <div className="flex items-center justify-between">
+                <h3 className="text-white font-medium text-sm uppercase tracking-wide">Filters</h3>
+                {hasActiveFilters && (
+                  <button
+                    onClick={clearAllFilters}
+                    className="text-xs text-yellow-500 hover:text-yellow-400 transition-colors flex items-center gap-1"
+                  >
+                    <XCircle size={12} />
+                    Clear all
+                  </button>
+                )}
+              </div>
             </div>
-          ) : (
-            <>
-              {/* Category Filters */}
-              <div className="p-4 border-b border-gray-800">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-white font-medium flex items-center gap-2">
-                    <Filter size={16} />
-                    Filter by Type
-                  </h3>
-                  {selectedCategoryIds.length > 0 && (
-                    <button
-                      onClick={clearCategoryFilters}
-                      className="text-xs text-yellow-500 hover:text-yellow-400 transition-colors"
-                    >
-                      Clear all
-                    </button>
-                  )}
-                </div>
-                <p className="text-gray-400 text-xs mb-3">
-                  {selectedCategoryIds.length === 0
-                    ? 'Showing all issue types'
-                    : `Showing ${selectedCategoryIds.length} selected type${selectedCategoryIds.length > 1 ? 's' : ''}`
-                  }
-                </p>
-                <div className="space-y-1 max-h-48 overflow-y-auto">
-                  {categories.map((category) => {
-                    const isSelected = selectedCategoryIds.length === 0 || selectedCategoryIds.includes(category.id);
-                    const color = category.color || getDefaultColor(category.code);
 
-                    return (
-                      <button
-                        key={category.id}
-                        onClick={() => toggleCategoryFilter(category.id)}
-                        className={`
-                          w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors
-                          ${selectedCategoryIds.includes(category.id)
-                            ? 'bg-gray-700'
-                            : selectedCategoryIds.length === 0
-                              ? 'bg-gray-800/50 hover:bg-gray-800'
-                              : 'bg-gray-800/30 hover:bg-gray-800/50 opacity-50'
-                          }
-                        `}
-                      >
-                        <span
-                          className="w-3 h-3 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: color }}
-                        />
-                        <span className={`text-sm flex-1 ${isSelected ? 'text-white' : 'text-gray-400'}`}>
-                          {category.name}
-                        </span>
-                        {stats && (
-                          <span className="text-xs text-gray-500">
-                            {stats.byCategory.find(c => c.categoryCode === category.code)?.count || 0}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
+            {/* Category Filters */}
+            <div className="p-4 border-b border-gray-800/50">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-gray-400 text-sm">Categories</span>
+                <span className="text-gray-500 text-xs">
+                  {selectedCategoryIds.length === 0 ? 'All' : `${selectedCategoryIds.length} selected`}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {categories.map((category) => {
+                  const isSelected = selectedCategoryIds.includes(category.id);
+                  const color = category.color || getDefaultColor(category.code);
+
+                  return (
+                    <button
+                      key={category.id}
+                      onClick={() => toggleCategoryFilter(category.id)}
+                      className={`
+                        px-2 py-1 rounded text-xs font-medium transition-all
+                        ${isSelected
+                          ? 'ring-2 ring-offset-1 ring-offset-gray-900'
+                          : 'opacity-60 hover:opacity-100'
+                        }
+                      `}
+                      style={{
+                        backgroundColor: isSelected ? color : `${color}40`,
+                        color: isSelected ? '#fff' : color,
+                        // @ts-expect-error CSS custom property for ring color
+                        '--tw-ring-color': color,
+                      }}
+                      title={category.name}
+                    >
+                      {category.name.length > 12 ? category.name.slice(0, 12) + '...' : category.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Date Range Filter */}
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Calendar size={14} className="text-gray-400" />
+                <span className="text-gray-400 text-sm">Date Range</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">From</label>
+                  <input
+                    type="date"
+                    value={issuesDateRange.startDate || ''}
+                    onChange={(e) => setIssuesDateRange(e.target.value || null, issuesDateRange.endDate)}
+                    className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white focus:outline-none focus:border-yellow-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">To</label>
+                  <input
+                    type="date"
+                    value={issuesDateRange.endDate || ''}
+                    onChange={(e) => setIssuesDateRange(issuesDateRange.startDate, e.target.value || null)}
+                    className="w-full px-2 py-1.5 bg-gray-800 border border-gray-700 rounded text-sm text-white focus:outline-none focus:border-yellow-500"
+                  />
                 </div>
               </div>
+            </div>
+          </div>
 
-              {/* Statistics */}
-              {stats && (
-                <>
-                  {/* Summary Stats */}
-                  <div className="p-4 border-b border-gray-800">
-                    <h3 className="text-white font-medium flex items-center gap-2 mb-3">
-                      <BarChart3 size={16} />
-                      Summary
-                    </h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-gray-800 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-yellow-500">{stats.total}</div>
-                        <div className="text-xs text-gray-400">Total Issues</div>
-                      </div>
-                      <div className="bg-gray-800 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-yellow-500">{categories.length}</div>
-                        <div className="text-xs text-gray-400">Categories</div>
-                      </div>
+          {/* ========== SUMMARY SECTION ========== */}
+          <div>
+            <div className="px-4 py-3 bg-gray-800/50 border-b border-gray-800">
+              <h3 className="text-white font-medium text-sm uppercase tracking-wide flex items-center gap-2">
+                <BarChart3 size={14} />
+                Summary
+                {selectedIssueDistrictName && (
+                  <span className="text-yellow-500 font-normal normal-case">
+                    - {selectedIssueDistrictName}
+                  </span>
+                )}
+              </h3>
+              {selectedIssueDistrictId && (
+                <button
+                  onClick={clearIssueDistrict}
+                  className="text-xs text-gray-400 hover:text-white mt-1"
+                >
+                  Show national summary
+                </button>
+              )}
+            </div>
+
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <RefreshCw className="w-5 h-5 text-yellow-500 animate-spin" />
+              </div>
+            ) : stats ? (
+              <>
+                {/* Total Issues */}
+                <div className="p-4 border-b border-gray-800/50">
+                  <div className="bg-gray-800 rounded-lg p-4 text-center">
+                    <div className="text-3xl font-bold text-yellow-500">{stats.total}</div>
+                    <div className="text-sm text-gray-400">
+                      {hasActiveFilters ? 'Filtered Issues' : 'Total Issues'}
                     </div>
                   </div>
+                </div>
 
-                  {/* Issues by Category Bar Chart */}
-                  <div className="p-4 border-b border-gray-800">
-                    <h3 className="text-white font-medium flex items-center gap-2 mb-3">
-                      <BarChart3 size={16} />
-                      By Category
-                    </h3>
-                    <div className="space-y-2">
-                      {stats.byCategory
-                        .sort((a, b) => b.count - a.count)
-                        .slice(0, 6)
-                        .map((item) => {
-                          const maxCount = Math.max(...stats.byCategory.map(c => c.count));
-                          const percentage = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
-                          const color = item.color || getDefaultColor(item.categoryCode);
+                {/* Issues by Category */}
+                <div className="p-4 border-b border-gray-800/50">
+                  <h4 className="text-gray-400 text-xs uppercase tracking-wide mb-3">By Category</h4>
+                  <div className="space-y-2">
+                    {stats.byCategory
+                      .sort((a, b) => b.count - a.count)
+                      .slice(0, 5)
+                      .map((item) => {
+                        const maxCount = Math.max(...stats.byCategory.map(c => c.count));
+                        const percentage = maxCount > 0 ? (item.count / maxCount) * 100 : 0;
+                        const color = item.color || getDefaultColor(item.categoryCode);
 
-                          return (
-                            <div key={item.categoryCode} className="space-y-1">
-                              <div className="flex justify-between text-xs">
-                                <span className="text-gray-300 truncate flex-1">{item.category}</span>
-                                <span className="text-gray-400 ml-2">{item.count}</span>
-                              </div>
-                              <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full transition-all duration-500"
-                                  style={{
-                                    width: `${percentage}%`,
-                                    backgroundColor: color,
-                                  }}
-                                />
-                              </div>
+                        return (
+                          <div key={item.categoryCode} className="space-y-1">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-gray-300 truncate flex-1">{item.category}</span>
+                              <span className="text-white font-medium ml-2">{item.count}</span>
                             </div>
-                          );
-                        })}
-                    </div>
+                            <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all duration-300"
+                                style={{
+                                  width: `${percentage}%`,
+                                  backgroundColor: color,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
                   </div>
+                </div>
 
-                  {/* Top Districts */}
+                {/* Top Districts */}
+                {!selectedIssueDistrictId && stats.topDistricts.length > 0 && (
                   <div className="p-4">
-                    <h3 className="text-white font-medium flex items-center gap-2 mb-3">
-                      <MapPin size={16} />
+                    <h4 className="text-gray-400 text-xs uppercase tracking-wide mb-3 flex items-center gap-2">
+                      <MapPin size={12} />
                       Top Districts
-                    </h3>
-                    <div className="space-y-2">
+                    </h4>
+                    <div className="space-y-1.5">
                       {stats.topDistricts.slice(0, 5).map((item, index) => (
                         <div
                           key={item.districtId || index}
-                          className="flex items-center justify-between px-3 py-2 bg-gray-800 rounded-lg"
+                          className="flex items-center justify-between px-2 py-1.5 bg-gray-800/50 rounded"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="w-5 h-5 flex items-center justify-center bg-gray-700 rounded text-xs text-gray-400">
+                            <span className="w-4 h-4 flex items-center justify-center bg-gray-700 rounded text-xs text-gray-400">
                               {index + 1}
                             </span>
                             <span className="text-sm text-gray-200">{item.district}</span>
@@ -271,16 +334,20 @@ export function IssuesPanel() {
                       ))}
                     </div>
                   </div>
-                </>
-              )}
-            </>
-          )}
+                )}
+              </>
+            ) : (
+              <div className="p-4 text-center text-gray-400 text-sm">
+                No data available
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Footer Hint */}
-        <div className="flex-shrink-0 p-4 border-t border-gray-800 bg-gray-900">
-          <p className="text-gray-400 text-xs">
-            <strong>Tip:</strong> Click categories to filter the map. Selected filters apply to the choropleth view.
+        {/* Footer */}
+        <div className="flex-shrink-0 px-4 py-3 border-t border-gray-800 bg-gray-900">
+          <p className="text-gray-500 text-xs">
+            Click on a district in the map to see its details.
           </p>
         </div>
       </div>
