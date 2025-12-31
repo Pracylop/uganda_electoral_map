@@ -392,3 +392,175 @@ function getDefaultColor(code: string): string {
   };
   return colors[code] || '#808080';
 }
+
+/**
+ * Get issues choropleth data (district polygons with issue counts)
+ * GET /api/issues/choropleth
+ * Returns GeoJSON FeatureCollection with district geometries and issue statistics
+ */
+export const getIssuesChoropleth = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { categoryId, startDate, endDate, severity } = req.query;
+
+    // Build where clause for issues
+    const where: any = {
+      districtId: { not: null }
+    };
+
+    if (categoryId) {
+      where.issueCategoryId = parseInt(categoryId as string);
+    }
+
+    if (severity) {
+      where.issueCategory = {
+        severity: parseInt(severity as string)
+      };
+    }
+
+    if (startDate || endDate) {
+      where.date = {};
+      if (startDate) {
+        where.date.gte = new Date(startDate as string);
+      }
+      if (endDate) {
+        where.date.lte = new Date(endDate as string);
+      }
+    }
+
+    // Get issue counts grouped by district
+    const issueCounts = await prisma.electoralIssue.groupBy({
+      by: ['districtId'],
+      where,
+      _count: true,
+      _max: {
+        date: true // Get most recent issue date
+      }
+    });
+
+    // Create a map of district ID to issue count
+    const countMap = new Map<number, { count: number; lastDate: Date | null }>();
+    let maxCount = 0;
+
+    issueCounts.forEach(item => {
+      if (item.districtId) {
+        countMap.set(item.districtId, {
+          count: item._count,
+          lastDate: item._max.date
+        });
+        maxCount = Math.max(maxCount, item._count);
+      }
+    });
+
+    // Get all districts (level 2) with geometry
+    const districts = await prisma.administrativeUnit.findMany({
+      where: { level: 2 },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        geometry: true
+      }
+    });
+
+    // Helper function to validate geometry coordinates deeply
+    const isValidCoordinates = (coords: any): boolean => {
+      if (!Array.isArray(coords)) return false;
+      if (coords.length === 0) return false;
+
+      // If first element is a number, this is a coordinate pair
+      if (typeof coords[0] === 'number') {
+        return coords.length >= 2 &&
+               typeof coords[0] === 'number' &&
+               typeof coords[1] === 'number' &&
+               !isNaN(coords[0]) && !isNaN(coords[1]);
+      }
+
+      // Otherwise it's a nested array - check all children
+      return coords.every((child: any) => isValidCoordinates(child));
+    };
+
+    // Build GeoJSON features
+    const features: any[] = [];
+
+    for (const district of districts) {
+      // Skip districts without geometry
+      if (!district.geometry) continue;
+
+      try {
+        const geometry = JSON.parse(district.geometry);
+
+        // Validate geometry has coordinates
+        if (!geometry || !geometry.coordinates || !geometry.type) {
+          console.warn(`District ${district.name} has invalid geometry structure`);
+          continue;
+        }
+
+        // Deep validate coordinates
+        if (!isValidCoordinates(geometry.coordinates)) {
+          console.warn(`District ${district.name} has invalid coordinates`);
+          continue;
+        }
+
+        const issueData = countMap.get(district.id) || { count: 0, lastDate: null };
+        const count = issueData.count;
+
+        // Calculate color based on issue count (0 = green, max = red)
+        const intensity = maxCount > 0 ? count / maxCount : 0;
+        const color = getIssueIntensityColor(intensity, count);
+
+        features.push({
+          type: 'Feature' as const,
+          id: district.id,
+          properties: {
+            unitId: district.id,
+            unitName: district.name,
+            unitCode: district.code,
+            issueCount: count,
+            lastIssueDate: issueData.lastDate,
+            fillColor: color,
+            intensity: intensity
+          },
+          geometry: geometry
+        });
+      } catch (e) {
+        console.warn(`Failed to parse geometry for district ${district.name}:`, e);
+      }
+    }
+
+    console.log(`[Issues Choropleth] Returning ${features.length} valid features out of ${districts.length} districts`);
+
+    res.json({
+      type: 'FeatureCollection',
+      features,
+      metadata: {
+        totalIssues: issueCounts.reduce((sum, item) => sum + item._count, 0),
+        districtsWithIssues: countMap.size,
+        maxIssuesPerDistrict: maxCount
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching issues choropleth:', error);
+    res.status(500).json({ error: 'Failed to fetch issues choropleth data' });
+  }
+};
+
+// Helper function to get color based on issue intensity
+// Uses a sequential color scale from light (few issues) to dark red (many issues)
+function getIssueIntensityColor(intensity: number, count: number): string {
+  if (count === 0) {
+    return '#d1d5db'; // Light gray for no issues
+  }
+
+  // Sequential scale: light yellow -> yellow -> orange -> red -> dark red
+  if (intensity < 0.1) {
+    return '#fef3c7'; // Very light yellow - minimal issues (1-2)
+  } else if (intensity < 0.25) {
+    return '#fde047'; // Yellow - few issues
+  } else if (intensity < 0.5) {
+    return '#f59e0b'; // Amber/Orange - moderate issues
+  } else if (intensity < 0.75) {
+    return '#ea580c'; // Dark orange - many issues
+  } else {
+    return '#dc2626'; // Red - critical level
+  }
+}

@@ -503,6 +503,42 @@ export const api = {
     }>(`/api/issues/stats${query}`);
   },
 
+  getIssuesChoropleth: (params?: {
+    categoryId?: number;
+    startDate?: string;
+    endDate?: string;
+    severity?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.categoryId) searchParams.append('categoryId', params.categoryId.toString());
+    if (params?.startDate) searchParams.append('startDate', params.startDate);
+    if (params?.endDate) searchParams.append('endDate', params.endDate);
+    if (params?.severity) searchParams.append('severity', params.severity.toString());
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest<{
+      type: 'FeatureCollection';
+      features: Array<{
+        type: 'Feature';
+        id: number;
+        geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon;
+        properties: {
+          unitId: number;
+          unitName: string;
+          unitCode: string;
+          issueCount: number;
+          lastIssueDate: string | null;
+          fillColor: string;
+          intensity: number;
+        };
+      }>;
+      metadata: {
+        totalIssues: number;
+        districtsWithIssues: number;
+        maxIssuesPerDistrict: number;
+      };
+    }>(`/api/issues/choropleth${query}`);
+  },
+
   // Polling Station endpoints
   getPollingStations: (params?: {
     districtId?: number;

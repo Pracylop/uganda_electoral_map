@@ -57,6 +57,8 @@ export function IssuesDashboard() {
   const [districtCounts, setDistrictCounts] = useState<DistrictIssueCount[]>([]);
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
+  const [mapType, setMapType] = useState<'choropleth' | 'points'>('choropleth');
+  const [choroplethMetadata, setChoroplethMetadata] = useState<{ totalIssues: number; districtsWithIssues: number; maxIssuesPerDistrict: number } | null>(null);
 
   // Filters
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
@@ -125,9 +127,98 @@ export function IssuesDashboard() {
     setMapLoaded(true);
   }, []);
 
-  // Load markers on map
+  // Load choropleth on map
   useEffect(() => {
-    if (!mapRef.current || !mapLoaded) return;
+    if (!mapRef.current || !mapLoaded || mapType !== 'choropleth') return;
+    const map = mapRef.current;
+
+    const loadChoropleth = async () => {
+      // Remove existing layers first
+      try {
+        ['issues-choropleth-fill', 'issues-choropleth-line', 'issues-choropleth-labels',
+         'issues-clusters', 'issues-cluster-count', 'issues-points'].forEach(layerId => {
+          if (map.getLayer(layerId)) map.removeLayer(layerId);
+        });
+        ['issues-choropleth', 'issues'].forEach(sourceId => {
+          if (map.getSource(sourceId)) map.removeSource(sourceId);
+        });
+      } catch (e) {
+        // Layers may not exist yet
+      }
+
+      try {
+        const params: any = {};
+        if (selectedCategory) params.categoryId = selectedCategory;
+        if (selectedSeverity) params.severity = selectedSeverity;
+        if (dateRange.start) params.startDate = dateRange.start;
+        if (dateRange.end) params.endDate = dateRange.end;
+
+        const choroplethData = await api.getIssuesChoropleth(params);
+        setChoroplethMetadata(choroplethData.metadata);
+
+        // Add source
+        map.addSource('issues-choropleth', {
+          type: 'geojson',
+          data: choroplethData as unknown as GeoJSON.FeatureCollection,
+        });
+
+        // Fill layer
+        map.addLayer({
+          id: 'issues-choropleth-fill',
+          type: 'fill',
+          source: 'issues-choropleth',
+          paint: {
+            'fill-color': ['get', 'fillColor'],
+            'fill-opacity': 0.85,
+          },
+        });
+
+        // Outline layer
+        map.addLayer({
+          id: 'issues-choropleth-line',
+          type: 'line',
+          source: 'issues-choropleth',
+          paint: {
+            'line-color': '#1f2937',
+            'line-width': 1,
+          },
+        });
+
+        // Click handler for districts
+        map.on('click', 'issues-choropleth-fill', (e) => {
+          if (!e.features || e.features.length === 0) return;
+          const props = e.features[0].properties;
+          if (!props) return;
+
+          new maplibregl.Popup()
+            .setLngLat(e.lngLat)
+            .setHTML(`
+              <div style="padding: 8px; color: #000;">
+                <h3 style="font-weight: bold; margin-bottom: 4px;">${props.unitName}</h3>
+                <p style="margin: 0;"><strong>${props.issueCount}</strong> issue${props.issueCount !== 1 ? 's' : ''} reported</p>
+              </div>
+            `)
+            .addTo(map);
+        });
+
+        // Hover effect
+        map.on('mouseenter', 'issues-choropleth-fill', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'issues-choropleth-fill', () => {
+          map.getCanvas().style.cursor = '';
+        });
+      } catch (error) {
+        console.error('[Issues Choropleth] Failed to load:', error);
+      }
+    };
+
+    loadChoropleth();
+  }, [mapLoaded, mapType, selectedCategory, selectedSeverity, dateRange]);
+
+  // Load point markers on map
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded || mapType !== 'points') return;
     const map = mapRef.current;
 
     const loadMapData = async () => {
@@ -137,6 +228,11 @@ export function IssuesDashboard() {
         if (map.getLayer('issues-cluster-count')) map.removeLayer('issues-cluster-count');
         if (map.getLayer('issues-points')) map.removeLayer('issues-points');
         if (map.getSource('issues')) map.removeSource('issues');
+        // Also remove choropleth layers if they exist
+        if (map.getLayer('issues-choropleth-fill')) map.removeLayer('issues-choropleth-fill');
+        if (map.getLayer('issues-choropleth-line')) map.removeLayer('issues-choropleth-line');
+        if (map.getLayer('issues-choropleth-labels')) map.removeLayer('issues-choropleth-labels');
+        if (map.getSource('issues-choropleth')) map.removeSource('issues-choropleth');
       } catch (e) {
         // Layers may not exist
       }
@@ -268,7 +364,7 @@ export function IssuesDashboard() {
     };
 
     loadMapData();
-  }, [mapLoaded, issues, selectedCategory, selectedSeverity, dateRange]);
+  }, [mapLoaded, mapType, issues, selectedCategory, selectedSeverity, dateRange]);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -401,26 +497,52 @@ export function IssuesDashboard() {
       <div className="flex-1 flex flex-col">
         {/* Toolbar */}
         <div className="bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setViewMode('map')}
-              className={`px-4 py-2 rounded text-sm font-medium ${
-                viewMode === 'map' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'
-              }`}
-            >
-              Map View
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-4 py-2 rounded text-sm font-medium ${
-                viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'
-              }`}
-            >
-              List View
-            </button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setViewMode('map')}
+                className={`px-4 py-2 rounded text-sm font-medium ${
+                  viewMode === 'map' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'
+                }`}
+              >
+                Map View
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`px-4 py-2 rounded text-sm font-medium ${
+                  viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'
+                }`}
+              >
+                List View
+              </button>
+            </div>
+            {viewMode === 'map' && (
+              <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
+                <span className="text-xs text-gray-400">Map Type:</span>
+                <button
+                  onClick={() => setMapType('choropleth')}
+                  className={`px-3 py-1.5 rounded text-xs font-medium ${
+                    mapType === 'choropleth' ? 'bg-yellow-500 text-gray-900' : 'bg-gray-700 text-gray-300'
+                  }`}
+                >
+                  Choropleth
+                </button>
+                <button
+                  onClick={() => setMapType('points')}
+                  className={`px-3 py-1.5 rounded text-xs font-medium ${
+                    mapType === 'points' ? 'bg-yellow-500 text-gray-900' : 'bg-gray-700 text-gray-300'
+                  }`}
+                >
+                  Points
+                </button>
+              </div>
+            )}
           </div>
           <div className="text-sm text-gray-400">
-            Showing {issues.length} issues
+            {mapType === 'choropleth' && choroplethMetadata
+              ? `${choroplethMetadata.totalIssues} issues in ${choroplethMetadata.districtsWithIssues} districts`
+              : `Showing ${issues.length} issues`
+            }
           </div>
         </div>
 
@@ -480,18 +602,52 @@ export function IssuesDashboard() {
 
               {/* Legend */}
               <div className="absolute bottom-4 left-4 bg-gray-800/95 backdrop-blur-sm rounded-lg p-3 z-10">
-                <div className="text-xs text-gray-400 mb-2">Severity</div>
-                <div className="space-y-1">
-                  {[5, 4, 3, 2, 1].map(sev => (
-                    <div key={sev} className="flex items-center gap-2 text-xs">
-                      <span
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: severityColors[sev] }}
-                      />
-                      <span className="text-gray-300">{severityLabels[sev]}</span>
+                {mapType === 'choropleth' ? (
+                  <>
+                    <div className="text-xs text-gray-400 mb-2">Issue Density</div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded" style={{ backgroundColor: '#dc2626' }} />
+                        <span className="text-gray-300">Critical (Most)</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded" style={{ backgroundColor: '#ea580c' }} />
+                        <span className="text-gray-300">High</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded" style={{ backgroundColor: '#f59e0b' }} />
+                        <span className="text-gray-300">Moderate</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded" style={{ backgroundColor: '#fde047' }} />
+                        <span className="text-gray-300">Low</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded" style={{ backgroundColor: '#fef3c7' }} />
+                        <span className="text-gray-300">Minimal</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded" style={{ backgroundColor: '#d1d5db' }} />
+                        <span className="text-gray-300">None</span>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-xs text-gray-400 mb-2">Severity</div>
+                    <div className="space-y-1">
+                      {[5, 4, 3, 2, 1].map(sev => (
+                        <div key={sev} className="flex items-center gap-2 text-xs">
+                          <span
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: severityColors[sev] }}
+                          />
+                          <span className="text-gray-300">{severityLabels[sev]}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </>
           ) : (

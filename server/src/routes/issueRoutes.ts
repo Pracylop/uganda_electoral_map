@@ -3,6 +3,7 @@ import {
   getIssues,
   getIssueById,
   getIssuesGeoJSON,
+  getIssuesChoropleth,
   getCategories,
   getIssueStats
 } from '../controllers/issueController';
@@ -16,8 +17,11 @@ router.get('/categories', authenticate, getCategories);
 // Get issue statistics
 router.get('/stats', authenticate, getIssueStats);
 
-// Get issues as GeoJSON for map display
+// Get issues as GeoJSON for map display (point markers)
 router.get('/geojson', authenticate, getIssuesGeoJSON);
+
+// Get issues as choropleth (district polygons with counts)
+router.get('/choropleth', authenticate, getIssuesChoropleth);
 
 // Get all issues with filters
 router.get('/', authenticate, getIssues);
