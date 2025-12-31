@@ -11,17 +11,35 @@ interface BroadcastMapProps {
 const UGANDA_CENTER: [number, number] = [32.5825, 1.3733];
 const INITIAL_ZOOM = 6.0; // Slightly more zoomed out to fit Uganda
 
+// Cache key generator for GeoJSON data
+function getCacheKey(electionId: number, level: number, parentId: number | null): string {
+  return `${electionId}-${level}-${parentId ?? 'null'}`;
+}
+
+// Type for cached data
+interface CachedMapData {
+  geojson: GeoJSON.FeatureCollection;
+  bbox?: [number, number, number, number];
+}
+
 export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isDataLoading, setIsDataLoading] = useState(false);
 
+  // In-memory cache for GeoJSON data (persists for session)
+  const dataCache = useRef<Map<string, CachedMapData>>(new Map());
+
+  // Reference to navigation popup (to close it when loading completes)
+  const navigationPopup = useRef<maplibregl.Popup | null>(null);
+
   const {
     selectedElectionId,
     currentLevel,
     selectedRegionId,
     drillDown: storeDrillDown,
+    navigateToDistrict,
   } = useBroadcastStore();
 
   // Initialize map
@@ -102,114 +120,145 @@ export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
     const mapInstance = map.current;
     if (!mapInstance || !mapInstance.isStyleLoaded()) return;
 
-    console.log('BroadcastMap: Loading election results', { electionId, level, parentId });
-    setIsDataLoading(true);
+    const cacheKey = getCacheKey(electionId, level, parentId);
+    const cached = dataCache.current.get(cacheKey);
 
-    try {
-      // Build API URL
-      let url = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/map/aggregated/${electionId}?level=${level}`;
-      if (parentId !== null) {
-        url += `&parentId=${parentId}`;
-      }
+    let geojson: GeoJSON.FeatureCollection;
+    let bbox: [number, number, number, number] | undefined;
 
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-        }
-      });
+    if (cached) {
+      // Use cached data - no loading indicator needed
+      console.log('BroadcastMap: Using cached data for', cacheKey);
+      geojson = cached.geojson;
+      bbox = cached.bbox;
+    } else {
+      // Fetch from API
+      console.log('BroadcastMap: Fetching from API', { electionId, level, parentId });
+      setIsDataLoading(true);
 
-      if (!response.ok) throw new Error('Failed to load map data');
-
-      const data = await response.json();
-      const geojson = data.type === 'FeatureCollection' ? data : data;
-      console.log('BroadcastMap: GeoJSON features count:', geojson.features?.length || 0);
-
-      // Remove existing layers if present
       try {
-        if (mapInstance.getLayer('results-fill')) mapInstance.removeLayer('results-fill');
-        if (mapInstance.getLayer('results-highlight')) mapInstance.removeLayer('results-highlight');
-        if (mapInstance.getLayer('results-outline')) mapInstance.removeLayer('results-outline');
-        if (mapInstance.getSource('results')) mapInstance.removeSource('results');
-      } catch (e) {
-        console.warn('Error removing existing layers:', e);
-      }
-
-      // Add GeoJSON source
-      mapInstance.addSource('results', {
-        type: 'geojson',
-        data: geojson
-      });
-
-      // Add fill layer colored by winning party
-      mapInstance.addLayer({
-        id: 'results-fill',
-        type: 'fill',
-        source: 'results',
-        paint: {
-          'fill-color': ['coalesce', ['get', 'winnerColor'], '#cccccc'],
-          'fill-opacity': 0.75,
-          'fill-opacity-transition': { duration: 800, delay: 0 },
-          'fill-color-transition': { duration: 500, delay: 0 }
+        let url = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/map/aggregated/${electionId}?level=${level}`;
+        if (parentId !== null) {
+          url += `&parentId=${parentId}`;
         }
-      });
 
-      // Add highlight layer for hovered regions
-      mapInstance.addLayer({
-        id: 'results-highlight',
-        type: 'fill',
-        source: 'results',
-        paint: {
-          'fill-color': '#ffffff',
-          'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.3, 0],
-          'fill-opacity-transition': { duration: 200, delay: 0 }
-        }
-      });
-
-      // Add outline layer
-      mapInstance.addLayer({
-        id: 'results-outline',
-        type: 'line',
-        source: 'results',
-        paint: {
-          'line-color': '#333333',
-          'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2, 0.5],
-          'line-width-transition': { duration: 200, delay: 0 }
-        }
-      });
-
-      // Animate to bounds with generous padding for broadcast screens
-      const animationOptions = {
-        padding: { top: 100, bottom: 100, left: 100, right: 100 },
-        duration: 1500,
-        essential: true,
-        curve: 1.2,
-        easing: (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
-      };
-
-      if (data.bbox && data.bbox.length === 4) {
-        mapInstance.fitBounds(
-          [[data.bbox[0], data.bbox[1]], [data.bbox[2], data.bbox[3]]],
-          animationOptions
-        );
-      } else if (geojson.features && geojson.features.length > 0) {
-        const bounds = new maplibregl.LngLatBounds();
-        geojson.features.forEach((feature: any) => {
-          if (feature.geometry?.type === 'Polygon' && feature.geometry.coordinates?.[0]) {
-            feature.geometry.coordinates[0].forEach((coord: [number, number]) => {
-              bounds.extend(coord);
-            });
+        const response = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('auth_token')}`
           }
         });
-        if (!bounds.isEmpty()) {
-          mapInstance.fitBounds(bounds, animationOptions);
-        }
-      }
 
-      setIsDataLoading(false);
-    } catch (err) {
-      console.error('BroadcastMap: Error loading election results:', err);
-      setIsDataLoading(false);
+        if (!response.ok) throw new Error('Failed to load map data');
+
+        const data = await response.json();
+        geojson = data.type === 'FeatureCollection' ? data : data;
+        bbox = data.bbox;
+
+        // Store in cache
+        dataCache.current.set(cacheKey, { geojson, bbox });
+        console.log('BroadcastMap: Cached data for', cacheKey, '- features:', geojson.features?.length || 0);
+      } catch (err) {
+        console.error('BroadcastMap: Error loading election results:', err);
+        setIsDataLoading(false);
+        return;
+      }
     }
+
+    // Remove existing layers if present
+    try {
+      if (mapInstance.getLayer('results-fill')) mapInstance.removeLayer('results-fill');
+      if (mapInstance.getLayer('results-highlight')) mapInstance.removeLayer('results-highlight');
+      if (mapInstance.getLayer('results-outline')) mapInstance.removeLayer('results-outline');
+      if (mapInstance.getSource('results')) mapInstance.removeSource('results');
+    } catch (e) {
+      console.warn('Error removing existing layers:', e);
+    }
+
+    // Add GeoJSON source
+    mapInstance.addSource('results', {
+      type: 'geojson',
+      data: geojson
+    });
+
+    // Add fill layer colored by winning party
+    mapInstance.addLayer({
+      id: 'results-fill',
+      type: 'fill',
+      source: 'results',
+      paint: {
+        'fill-color': ['coalesce', ['get', 'winnerColor'], '#cccccc'],
+        'fill-opacity': 0.75,
+        'fill-opacity-transition': { duration: 800, delay: 0 },
+        'fill-color-transition': { duration: 500, delay: 0 }
+      }
+    });
+
+    // Add highlight layer for hovered regions
+    mapInstance.addLayer({
+      id: 'results-highlight',
+      type: 'fill',
+      source: 'results',
+      paint: {
+        'fill-color': '#ffffff',
+        'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.3, 0],
+        'fill-opacity-transition': { duration: 200, delay: 0 }
+      }
+    });
+
+    // Add outline layer
+    mapInstance.addLayer({
+      id: 'results-outline',
+      type: 'line',
+      source: 'results',
+      paint: {
+        'line-color': '#333333',
+        'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2, 0.5],
+        'line-width-transition': { duration: 200, delay: 0 }
+      }
+    });
+
+    // Close navigation popup after map finishes rendering
+    // Use 'idle' event which fires when map is done loading tiles and rendering
+    if (navigationPopup.current) {
+      const closePopup = () => {
+        if (navigationPopup.current) {
+          navigationPopup.current.remove();
+          navigationPopup.current = null;
+        }
+        mapInstance.off('idle', closePopup);
+      };
+      mapInstance.once('idle', closePopup);
+    }
+
+    // Animate to bounds with generous padding for broadcast screens
+    const animationOptions = {
+      padding: { top: 100, bottom: 100, left: 100, right: 100 },
+      duration: 1500,
+      essential: true,
+      curve: 1.2,
+      easing: (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+    };
+
+    if (bbox && bbox.length === 4) {
+      mapInstance.fitBounds(
+        [[bbox[0], bbox[1]], [bbox[2], bbox[3]]],
+        animationOptions
+      );
+    } else if (geojson.features && geojson.features.length > 0) {
+      const bounds = new maplibregl.LngLatBounds();
+      geojson.features.forEach((feature: any) => {
+        if (feature.geometry?.type === 'Polygon' && feature.geometry.coordinates?.[0]) {
+          feature.geometry.coordinates[0].forEach((coord: [number, number]) => {
+            bounds.extend(coord);
+          });
+        }
+      });
+      if (!bounds.isEmpty()) {
+        mapInstance.fitBounds(bounds, animationOptions);
+      }
+    }
+
+    setIsDataLoading(false);
   }, []);
 
   // Set up click handler for drill-down
@@ -217,7 +266,8 @@ export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
     const mapInstance = map.current;
     if (!mapInstance || !isLoaded) return;
 
-    const handleClick = (e: maplibregl.MapMouseEvent) => {
+    // Handler for clicks on the choropleth layer
+    const handleChoroplethClick = (e: maplibregl.MapMouseEvent) => {
       const features = mapInstance.queryRenderedFeatures(e.point, {
         layers: ['results-fill']
       });
@@ -252,7 +302,79 @@ export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
       }
     };
 
-    mapInstance.on('click', 'results-fill', handleClick);
+    // Fallback handler for clicks on basemap (outside choropleth)
+    // Uses cached GeoJSON data to find which district was clicked
+    const handleBasemapClick = (e: maplibregl.MapMouseEvent) => {
+      // Check if the results-fill layer exists
+      const hasResultsLayer = mapInstance.getLayer('results-fill');
+
+      // Check if click was on the choropleth layer
+      let features: maplibregl.MapGeoJSONFeature[] = [];
+      try {
+        if (hasResultsLayer) {
+          features = mapInstance.queryRenderedFeatures(e.point, {
+            layers: ['results-fill']
+          });
+        }
+      } catch (err) {
+        console.log('BroadcastMap: Error querying features:', err);
+      }
+
+      // If clicked on choropleth, the other handler will process it
+      if (features && features.length > 0) {
+        return;
+      }
+
+      // Click was on basemap - check cached national data for district lookup
+      const { lng, lat } = e.lngLat;
+      console.log('BroadcastMap: Basemap click at:', { lng, lat });
+
+      // Look for cached national-level data (level 2, no parentId)
+      if (!selectedElectionId) {
+        console.log('BroadcastMap: No election selected');
+        return;
+      }
+
+      const nationalCacheKey = getCacheKey(selectedElectionId, 2, null);
+      const nationalData = dataCache.current.get(nationalCacheKey);
+
+      if (!nationalData) {
+        console.log('BroadcastMap: No cached national data found');
+        return;
+      }
+
+      console.log('BroadcastMap: Checking', nationalData.geojson.features.length, 'districts');
+
+      // Find which district contains the clicked point
+      const clickedDistrict = nationalData.geojson.features.find(feature => {
+        if (!feature.geometry) return false;
+        return pointInPolygon([lng, lat], feature.geometry);
+      });
+
+      if (clickedDistrict && clickedDistrict.properties) {
+        const { unitId, unitName } = clickedDistrict.properties as { unitId: number; unitName: string };
+        console.log('BroadcastMap: Found district:', { unitId, unitName });
+
+        // Close any existing navigation popup
+        if (navigationPopup.current) {
+          navigationPopup.current.remove();
+        }
+
+        // Show a brief popup indicating where we're navigating
+        navigationPopup.current = new maplibregl.Popup({ closeOnClick: true, closeButton: false })
+          .setLngLat(e.lngLat)
+          .setHTML(`<div style="padding: 8px; font-family: system-ui;"><strong>Navigating to ${unitName}</strong></div>`)
+          .addTo(mapInstance);
+
+        // Navigate directly to district (resets stack and shows constituencies at level 3)
+        navigateToDistrict(unitId, unitName);
+      } else {
+        console.log('BroadcastMap: No district found at click location');
+      }
+    };
+
+    mapInstance.on('click', 'results-fill', handleChoroplethClick);
+    mapInstance.on('click', handleBasemapClick);
 
     // Hover effects
     let hoveredFeatureId: string | number | null = null;
@@ -296,11 +418,12 @@ export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
     mapInstance.on('mouseleave', 'results-fill', handleMouseLeave);
 
     return () => {
-      mapInstance.off('click', 'results-fill', handleClick);
+      mapInstance.off('click', 'results-fill', handleChoroplethClick);
+      mapInstance.off('click', handleBasemapClick);
       mapInstance.off('mousemove', 'results-fill', handleMouseMove);
       mapInstance.off('mouseleave', 'results-fill', handleMouseLeave);
     };
-  }, [isLoaded, currentLevel, onRegionClick, storeDrillDown]);
+  }, [isLoaded, currentLevel, onRegionClick, storeDrillDown, navigateToDistrict, selectedElectionId]);
 
   // Load results when election or drill-down changes
   useEffect(() => {
@@ -327,6 +450,55 @@ export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
       )}
     </div>
   );
+}
+
+// Point-in-polygon check using ray casting algorithm
+function pointInPolygon(point: [number, number], geometry: GeoJSON.Geometry): boolean {
+  const [x, y] = point;
+
+  try {
+    if (geometry.type === 'MultiPolygon') {
+      // Check each polygon in the MultiPolygon
+      return geometry.coordinates.some(polygonCoords => {
+        const ring = polygonCoords?.[0];
+        if (!ring || !Array.isArray(ring) || ring.length < 3) return false;
+        return pointInRing(x, y, ring);
+      });
+    } else if (geometry.type === 'Polygon') {
+      // Single Polygon - check outer ring
+      const ring = geometry.coordinates?.[0];
+      if (!ring || !Array.isArray(ring) || ring.length < 3) return false;
+      return pointInRing(x, y, ring);
+    }
+    // Other geometry types (Point, LineString, etc.) - skip
+    return false;
+  } catch (e) {
+    // Skip malformed geometries
+    return false;
+  }
+}
+
+// Ray casting algorithm for a single ring
+function pointInRing(x: number, y: number, ring: number[][]): boolean {
+  if (!ring || ring.length < 3) return false;
+
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const coord_i = ring[i];
+    const coord_j = ring[j];
+    if (!coord_i || !coord_j) continue;
+
+    const xi = coord_i[0], yi = coord_i[1];
+    const xj = coord_j[0], yj = coord_j[1];
+
+    if (xi === undefined || yi === undefined || xj === undefined || yj === undefined) continue;
+
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+
+    if (intersect) inside = !inside;
+  }
+  return inside;
 }
 
 // Helper function to create popup HTML (simplified from MapDashboard)

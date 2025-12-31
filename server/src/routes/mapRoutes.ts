@@ -7,7 +7,8 @@ import {
   getAdminUnitDetails,
   getParties,
   getNationalTotals,
-  getElectionSwing
+  getElectionSwing,
+  getAdminUnitAtPoint
 } from '../controllers/mapController';
 
 const router = Router();
@@ -37,5 +38,9 @@ router.get('/national/:electionId', getNationalTotals);
 // GET /api/map/swing/:election1Id/:election2Id - Get swing analysis between two elections
 // Query params: level (1-5), parentId (optional)
 router.get('/swing/:election1Id/:election2Id', getElectionSwing);
+
+// GET /api/map/point-lookup - Find admin unit at given coordinates
+// Query params: lng, lat, level (optional)
+router.get('/point-lookup', getAdminUnitAtPoint);
 
 export default router;

@@ -59,6 +59,7 @@ interface BroadcastState {
   drillDown: (regionId: number, regionName: string) => void;
   drillUp: () => void;
   navigateTo: (index: number) => void; // Navigate to specific breadcrumb level
+  navigateToDistrict: (districtId: number, districtName: string) => void; // Jump directly to a district
   resetToNational: () => void;
 
   toggleLayer: (layer: keyof BroadcastState['layers']) => void;
@@ -197,6 +198,20 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
       currentLevel: targetLevel.level,
       selectedRegionId: targetLevel.regionId,
       selectedRegionName: targetLevel.regionName,
+    });
+  },
+
+  // Navigate directly to a district (from basemap clicks)
+  // Creates a new stack: Uganda -> District (showing constituencies at level 3)
+  navigateToDistrict: (districtId, districtName) => {
+    set({
+      drillDownStack: [
+        { level: 2, regionId: null, regionName: 'Uganda' },
+        { level: 3, regionId: districtId, regionName: districtName }
+      ],
+      currentLevel: 3,
+      selectedRegionId: districtId,
+      selectedRegionName: districtName,
     });
   },
 

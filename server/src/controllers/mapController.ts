@@ -968,3 +968,99 @@ function updateBounds(geometry: any, update: (lng: number, lat: number) => void)
     processCoords(geometry.coordinates);
   }
 }
+
+// Point-in-polygon lookup: Find admin unit containing given coordinates
+export const getAdminUnitAtPoint = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const lng = parseFloat(req.query.lng as string);
+    const lat = parseFloat(req.query.lat as string);
+    const level = req.query.level ? parseInt(req.query.level as string) : null;
+
+    console.log('Point lookup request:', { lng, lat, level });
+
+    if (isNaN(lng) || isNaN(lat)) {
+      console.log('Point lookup: Invalid coordinates');
+      res.status(400).json({ error: 'Invalid coordinates. Provide lng and lat as numbers.' });
+      return;
+    }
+
+    // Validate coordinates are roughly within Uganda bounds
+    if (lng < 29 || lng > 36 || lat < -2 || lat > 5) {
+      console.log('Point lookup: Coordinates outside Uganda bounds');
+      res.status(400).json({ error: 'Coordinates outside Uganda bounds' });
+      return;
+    }
+
+    // Use raw SQL for point-in-polygon query since Prisma doesn't support ST_Contains
+    // We check if the point is within any admin unit's geometry
+    const levelFilter = level ? `AND level = ${level}` : '';
+
+    const query = `
+      SELECT
+        id,
+        name,
+        code,
+        level,
+        parent_id as "parentId"
+      FROM administrative_units
+      WHERE geometry IS NOT NULL
+        ${levelFilter}
+        AND ST_Contains(
+          ST_SetSRID(geometry::geometry, 4326),
+          ST_SetSRID(ST_MakePoint($1, $2), 4326)
+        )
+      ORDER BY level DESC
+      LIMIT 5
+    `;
+
+    console.log('Point lookup query:', query.replace(/\s+/g, ' ').trim());
+    console.log('Point lookup params:', [lng, lat]);
+
+    const results = await prisma.$queryRawUnsafe<any[]>(query, lng, lat);
+    console.log('Point lookup results count:', results.length);
+
+    if (results.length === 0) {
+      res.status(404).json({
+        error: 'No admin unit found at this location',
+        coordinates: { lng, lat }
+      });
+      return;
+    }
+
+    // Return all matching units (from most specific to least)
+    // Usually: parish -> subcounty -> constituency -> district -> subregion
+    res.json({
+      coordinates: { lng, lat },
+      units: results.map(r => ({
+        id: r.id,
+        name: r.name,
+        code: r.code,
+        level: r.level,
+        parentId: r.parentId
+      })),
+      // Convenience: most specific unit
+      primary: {
+        id: results[0].id,
+        name: results[0].name,
+        code: results[0].code,
+        level: results[0].level,
+        parentId: results[0].parentId
+      }
+    });
+
+  } catch (error) {
+    console.error('Point lookup error:', error);
+
+    // Check if error is due to missing PostGIS extension
+    const errorMessage = (error as Error).message || '';
+    if (errorMessage.includes('ST_Contains') || errorMessage.includes('function st_')) {
+      res.status(500).json({
+        error: 'Spatial query not supported. PostGIS extension may not be installed.',
+        fallback: 'Use boundary-based navigation instead.'
+      });
+      return;
+    }
+
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
