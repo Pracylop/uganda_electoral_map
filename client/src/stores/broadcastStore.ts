@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ViewMode = 'map' | 'dashboard' | 'comparison';
+export type ViewMode = 'map' | 'dashboard' | 'comparison' | 'issues';
 export type SidebarPosition = 'left' | 'right';
 
 export interface DrillDownLevel {

@@ -5,6 +5,7 @@ export { BroadcastHeader } from './BroadcastHeader';
 export { BroadcastBreadcrumb } from './BroadcastBreadcrumb';
 export { BroadcastMap } from './BroadcastMap';
 export { BroadcastComparisonView } from './BroadcastComparisonView';
+export { BroadcastIssuesMap } from './BroadcastIssuesMap';
 export { LayersPanel } from './LayersPanel';
 export { AnnotationCanvas } from './AnnotationCanvas';
 export { AnnotationToolbar } from './AnnotationToolbar';

@@ -3,6 +3,7 @@ import {
   Map,
   LayoutDashboard,
   GitCompare,
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Search,
@@ -90,6 +91,13 @@ export function BroadcastSidebar({ onExit, canDrillUp }: BroadcastSidebarProps) 
           onClick={() => setViewMode('comparison')}
           active={viewMode === 'comparison'}
           shortcut="C"
+        />
+        <IconButton
+          icon={AlertTriangle}
+          label="Electoral Issues"
+          onClick={() => setViewMode('issues')}
+          active={viewMode === 'issues'}
+          shortcut="I"
         />
       </div>
 

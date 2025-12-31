@@ -7,6 +7,7 @@ import {
   BroadcastBreadcrumb,
   BroadcastMap,
   BroadcastComparisonView,
+  BroadcastIssuesMap,
   LayersPanel,
   AnnotationCanvas,
   AnnotationToolbar,
@@ -132,6 +133,10 @@ export function BroadcastApp() {
         case 'c':
         case 'C':
           setViewMode('comparison');
+          break;
+        case 'i':
+        case 'I':
+          setViewMode('issues');
           break;
         case 'l':
         case 'L':
@@ -266,8 +271,29 @@ export function BroadcastApp() {
           <BroadcastComparisonView />
         )}
 
+        {/* Issues View */}
+        {viewMode === 'issues' && (
+          <div className="w-full h-full relative">
+            <BroadcastIssuesMap interactionsDisabled={annotationMode} />
+
+            {/* Annotation Canvas Overlay */}
+            <AnnotationCanvas
+              annotations={annotations}
+              isDrawing={isDrawing}
+              currentPoints={currentPoints}
+              activeTool={activeTool}
+              activeColor={activeColor}
+              strokeWidth={strokeWidth}
+              onStartDrawing={startDrawing}
+              onContinueDrawing={continueDrawing}
+              onFinishDrawing={finishDrawing}
+              enabled={annotationMode}
+            />
+          </div>
+        )}
+
         {/* No Election Selected */}
-        {!selectedElectionId && viewMode !== 'comparison' && (
+        {!selectedElectionId && viewMode !== 'comparison' && viewMode !== 'issues' && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 z-10">
             <div className="text-center">
               <p className="text-2xl text-white mb-4">No Election Selected</p>
