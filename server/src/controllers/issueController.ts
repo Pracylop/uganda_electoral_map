@@ -462,6 +462,27 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
       }
     });
 
+    // Helper to clean geometry by removing empty polygon arrays
+    const cleanGeometry = (geometry: any): any => {
+      if (!geometry || !geometry.coordinates) return null;
+
+      if (geometry.type === 'MultiPolygon') {
+        // Filter out empty polygons
+        const cleanedCoords = geometry.coordinates.filter((polygon: any) =>
+          Array.isArray(polygon) && polygon.length > 0 &&
+          Array.isArray(polygon[0]) && polygon[0].length > 0
+        );
+        if (cleanedCoords.length === 0) return null;
+        return { ...geometry, coordinates: cleanedCoords };
+      } else if (geometry.type === 'Polygon') {
+        // Ensure polygon has valid rings
+        if (!Array.isArray(geometry.coordinates) || geometry.coordinates.length === 0) return null;
+        if (!Array.isArray(geometry.coordinates[0]) || geometry.coordinates[0].length === 0) return null;
+        return geometry;
+      }
+      return geometry;
+    };
+
     // Build GeoJSON features
     const features: any[] = [];
 
@@ -470,11 +491,17 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
       if (!district.geometry) continue;
 
       try {
-        const geometry = JSON.parse(district.geometry);
+        const rawGeometry = JSON.parse(district.geometry);
 
-        // Basic validation - MapLibre handles edge cases like empty polygon arrays gracefully
-        if (!geometry || !geometry.coordinates || !geometry.type) {
-          console.warn(`District ${district.name} has invalid geometry structure`);
+        // Basic validation
+        if (!rawGeometry || !rawGeometry.coordinates || !rawGeometry.type) {
+          continue;
+        }
+
+        // Clean geometry to remove empty polygon arrays that break MapLibre
+        const geometry = cleanGeometry(rawGeometry);
+        if (!geometry) {
+          console.warn(`District ${district.name} has no valid polygons after cleaning`);
           continue;
         }
 
