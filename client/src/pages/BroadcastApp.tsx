@@ -6,6 +6,7 @@ import {
   BroadcastHeader,
   BroadcastBreadcrumb,
   BroadcastMap,
+  BroadcastComparisonView,
   LayersPanel,
   AnnotationCanvas,
   AnnotationToolbar,
@@ -234,6 +235,7 @@ export function BroadcastApp() {
           <div className="w-full h-full relative">
             <BroadcastMap
               onRegionClick={handleRegionClick}
+              interactionsDisabled={annotationMode}
             />
 
             {/* Annotation Canvas Overlay */}
@@ -261,12 +263,7 @@ export function BroadcastApp() {
 
         {/* Comparison View */}
         {viewMode === 'comparison' && (
-          <div className="w-full h-full flex items-center justify-center">
-            <div className="text-center text-gray-400">
-              <p className="text-2xl mb-4">Election Comparison</p>
-              <p>Select two elections to compare results side by side</p>
-            </div>
-          </div>
+          <BroadcastComparisonView />
         )}
 
         {/* No Election Selected */}

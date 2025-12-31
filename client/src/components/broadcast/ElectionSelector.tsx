@@ -126,7 +126,7 @@ export function ElectionSelector() {
                 return (
                   <button
                     key={election.id}
-                    onClick={() => selectElection(election.id)}
+                    onClick={() => selectElection(election.id, election.electionType?.electoralLevel)}
                     className={`
                       w-full
                       flex items-center gap-4

@@ -6,6 +6,16 @@ import { useBroadcastStore } from '../../stores/broadcastStore';
 interface BroadcastMapProps {
   className?: string;
   onRegionClick?: (regionId: number, regionName: string, level: number) => void;
+  /** Override election ID (for comparison mode) */
+  electionId?: number | null;
+  /** Disable basemap click navigation (for comparison right map) */
+  disableBasemapNavigation?: boolean;
+  /** Label to show in corner (e.g., election name) */
+  label?: string;
+  /** Label color */
+  labelColor?: string;
+  /** Disable map interactions (for annotation mode) */
+  interactionsDisabled?: boolean;
 }
 
 const UGANDA_CENTER: [number, number] = [32.5825, 1.3733];
@@ -22,7 +32,15 @@ interface CachedMapData {
   bbox?: [number, number, number, number];
 }
 
-export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
+export function BroadcastMap({
+  className,
+  onRegionClick,
+  electionId: propElectionId,
+  disableBasemapNavigation = false,
+  label,
+  labelColor = 'bg-yellow-500',
+  interactionsDisabled = false,
+}: BroadcastMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -35,12 +53,16 @@ export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
   const navigationPopup = useRef<maplibregl.Popup | null>(null);
 
   const {
-    selectedElectionId,
+    selectedElectionId: storeElectionId,
     currentLevel,
     selectedRegionId,
     drillDown: storeDrillDown,
     navigateToDistrict,
+    basemapOpacity,
   } = useBroadcastStore();
+
+  // Use prop election ID if provided, otherwise use store
+  const selectedElectionId = propElectionId !== undefined ? propElectionId : storeElectionId;
 
   // Initialize map
   useEffect(() => {
@@ -110,6 +132,43 @@ export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
       map.current = null;
     };
   }, []);
+
+  // Enable/disable map interactions (for annotation mode)
+  useEffect(() => {
+    const mapInstance = map.current;
+    if (!mapInstance) return;
+
+    if (interactionsDisabled) {
+      // Disable all interactions when annotation mode is active
+      mapInstance.dragPan.disable();
+      mapInstance.scrollZoom.disable();
+      mapInstance.boxZoom.disable();
+      mapInstance.dragRotate.disable();
+      mapInstance.keyboard.disable();
+      mapInstance.doubleClickZoom.disable();
+      mapInstance.touchZoomRotate.disable();
+    } else {
+      // Re-enable interactions
+      mapInstance.dragPan.enable();
+      mapInstance.scrollZoom.enable();
+      mapInstance.boxZoom.enable();
+      mapInstance.dragRotate.enable();
+      mapInstance.keyboard.enable();
+      mapInstance.doubleClickZoom.enable();
+      mapInstance.touchZoomRotate.enable();
+    }
+  }, [interactionsDisabled]);
+
+  // Update basemap opacity
+  useEffect(() => {
+    const mapInstance = map.current;
+    if (!mapInstance || !mapInstance.isStyleLoaded()) return;
+
+    // Update the OSM basemap layer opacity
+    if (mapInstance.getLayer('osm')) {
+      mapInstance.setPaintProperty('osm', 'raster-opacity', basemapOpacity / 100);
+    }
+  }, [basemapOpacity]);
 
   // Load election results when election or drill-down changes
   const loadElectionResults = useCallback(async (
@@ -305,6 +364,8 @@ export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
     // Fallback handler for clicks on basemap (outside choropleth)
     // Uses cached GeoJSON data to find which district was clicked
     const handleBasemapClick = (e: maplibregl.MapMouseEvent) => {
+      // Skip if basemap navigation is disabled (e.g., comparison right map)
+      if (disableBasemapNavigation) return;
       // Check if the results-fill layer exists
       const hasResultsLayer = mapInstance.getLayer('results-fill');
 
@@ -423,7 +484,7 @@ export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
       mapInstance.off('mousemove', 'results-fill', handleMouseMove);
       mapInstance.off('mouseleave', 'results-fill', handleMouseLeave);
     };
-  }, [isLoaded, currentLevel, onRegionClick, storeDrillDown, navigateToDistrict, selectedElectionId]);
+  }, [isLoaded, currentLevel, onRegionClick, storeDrillDown, navigateToDistrict, selectedElectionId, disableBasemapNavigation]);
 
   // Load results when election or drill-down changes
   useEffect(() => {
@@ -438,6 +499,13 @@ export function BroadcastMap({ className, onRegionClick }: BroadcastMapProps) {
         ref={mapContainer}
         className={`w-full h-full ${className || ''}`}
       />
+
+      {/* Election Label (for comparison mode) */}
+      {label && (
+        <div className={`absolute top-4 left-4 ${labelColor} text-gray-900 px-4 py-2 rounded-lg shadow-lg z-10 font-semibold`}>
+          {label}
+        </div>
+      )}
 
       {/* Loading Indicator */}
       {isDataLoading && (

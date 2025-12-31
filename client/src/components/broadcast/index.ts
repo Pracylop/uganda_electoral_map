@@ -4,6 +4,7 @@ export { BroadcastSidebar, SidebarToggle } from './BroadcastSidebar';
 export { BroadcastHeader } from './BroadcastHeader';
 export { BroadcastBreadcrumb } from './BroadcastBreadcrumb';
 export { BroadcastMap } from './BroadcastMap';
+export { BroadcastComparisonView } from './BroadcastComparisonView';
 export { LayersPanel } from './LayersPanel';
 export { AnnotationCanvas } from './AnnotationCanvas';
 export { AnnotationToolbar } from './AnnotationToolbar';

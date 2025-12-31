@@ -39,6 +39,9 @@ interface BroadcastState {
     boundaries: boolean;
   };
 
+  // Basemap settings
+  basemapOpacity: number; // 0-100
+
   // Actions
   toggleSidebar: () => void;
   setSidebarExpanded: (expanded: boolean) => void;
@@ -53,8 +56,8 @@ interface BroadcastState {
   closeAllPanels: () => void;
 
   setViewMode: (mode: ViewMode) => void;
-  selectElection: (id: number) => void;
-  setComparisonElection: (id: number | null) => void;
+  selectElection: (id: number, electoralLevel?: number) => void;
+  setComparisonElection: (id: number | null, electoralLevel?: number) => void;
 
   drillDown: (regionId: number, regionName: string) => void;
   drillUp: () => void;
@@ -64,6 +67,9 @@ interface BroadcastState {
 
   toggleLayer: (layer: keyof BroadcastState['layers']) => void;
   setLayer: (layer: keyof BroadcastState['layers'], visible: boolean) => void;
+
+  // Basemap actions
+  setBasemapOpacity: (opacity: number) => void;
 
   // Reset
   reset: () => void;
@@ -91,6 +97,7 @@ const initialState = {
     historical: false,
     boundaries: true,
   },
+  basemapOpacity: 50, // Default 50% - balanced between basemap and choropleth
 };
 
 export const useBroadcastStore = create<BroadcastState>((set, get) => ({
@@ -142,12 +149,29 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
   // View Actions
   setViewMode: (mode) => set({ viewMode: mode }),
 
-  selectElection: (id) => set({
-    selectedElectionId: id,
-    electionSelectorOpen: false,
-  }),
+  // Select election and adjust starting level based on electoral level
+  // electoralLevel: 0=Presidential (show districts), 2=District Woman MP (show districts), 3=Constituency MP (show constituencies)
+  selectElection: (id, electoralLevel) => {
+    // Determine starting level based on election type
+    // For constituency-level elections (electoralLevel=3), start at level 3
+    // For others, start at level 2 (districts)
+    const startingLevel = electoralLevel === 3 ? 3 : 2;
 
-  setComparisonElection: (id) => set({ comparisonElectionId: id }),
+    set({
+      selectedElectionId: id,
+      electionSelectorOpen: false,
+      // Reset navigation to appropriate starting level
+      drillDownStack: [{ level: startingLevel, regionId: null, regionName: 'Uganda' }],
+      currentLevel: startingLevel,
+      selectedRegionId: null,
+      selectedRegionName: 'Uganda',
+    });
+  },
+
+  setComparisonElection: (id, _electoralLevel) => {
+    // For comparison, just set the ID - the level is shared with main election
+    set({ comparisonElectionId: id });
+  },
 
   // Navigation Actions
   drillDown: (regionId, regionName) => {
@@ -236,6 +260,9 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
       [layer]: visible,
     },
   })),
+
+  // Basemap opacity (0-100)
+  setBasemapOpacity: (opacity) => set({ basemapOpacity: Math.max(0, Math.min(100, opacity)) }),
 
   // Reset
   reset: () => set(initialState),

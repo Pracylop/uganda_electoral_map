@@ -66,7 +66,7 @@ function LayerToggle({ label, description, checked, onChange, disabled }: LayerT
 }
 
 export function LayersPanel() {
-  const { layersPanelOpen, toggleLayersPanel, layers, toggleLayer, sidebarExpanded, sidebarPosition } = useBroadcastStore();
+  const { layersPanelOpen, toggleLayersPanel, layers, toggleLayer, sidebarExpanded, sidebarPosition, basemapOpacity, setBasemapOpacity } = useBroadcastStore();
 
   if (!layersPanelOpen) return null;
 
@@ -104,6 +104,44 @@ export function LayersPanel() {
           >
             <X size={24} />
           </button>
+        </div>
+
+        {/* Basemap Opacity */}
+        <div className="p-4 border-b border-gray-700">
+          <h3 className="text-white font-medium mb-3">Basemap Intensity</h3>
+          <div className="space-y-3">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={basemapOpacity}
+              onChange={(e) => setBasemapOpacity(parseInt(e.target.value))}
+              className="w-full h-3 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+            />
+            <div className="flex justify-between text-sm text-gray-400">
+              <span>Faded</span>
+              <span className="text-yellow-500 font-medium">{basemapOpacity}%</span>
+              <span>Sharp</span>
+            </div>
+            {/* Quick presets */}
+            <div className="flex gap-2 mt-2">
+              {[0, 25, 50, 75, 100].map((value) => (
+                <button
+                  key={value}
+                  onClick={() => setBasemapOpacity(value)}
+                  className={`
+                    flex-1 py-2 rounded-lg text-sm font-medium transition-colors
+                    ${basemapOpacity === value
+                      ? 'bg-yellow-500 text-gray-900'
+                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }
+                  `}
+                >
+                  {value}%
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Layer Toggles */}
