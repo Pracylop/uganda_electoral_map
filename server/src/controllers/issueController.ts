@@ -462,23 +462,6 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
       }
     });
 
-    // Helper function to validate geometry coordinates deeply
-    const isValidCoordinates = (coords: any): boolean => {
-      if (!Array.isArray(coords)) return false;
-      if (coords.length === 0) return false;
-
-      // If first element is a number, this is a coordinate pair
-      if (typeof coords[0] === 'number') {
-        return coords.length >= 2 &&
-               typeof coords[0] === 'number' &&
-               typeof coords[1] === 'number' &&
-               !isNaN(coords[0]) && !isNaN(coords[1]);
-      }
-
-      // Otherwise it's a nested array - check all children
-      return coords.every((child: any) => isValidCoordinates(child));
-    };
-
     // Build GeoJSON features
     const features: any[] = [];
 
@@ -489,15 +472,9 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
       try {
         const geometry = JSON.parse(district.geometry);
 
-        // Validate geometry has coordinates
+        // Basic validation - MapLibre handles edge cases like empty polygon arrays gracefully
         if (!geometry || !geometry.coordinates || !geometry.type) {
           console.warn(`District ${district.name} has invalid geometry structure`);
-          continue;
-        }
-
-        // Deep validate coordinates
-        if (!isValidCoordinates(geometry.coordinates)) {
-          console.warn(`District ${district.name} has invalid coordinates`);
           continue;
         }
 
