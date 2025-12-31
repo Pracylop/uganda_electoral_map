@@ -22,11 +22,15 @@ interface AuthState {
   clearError: () => void;
 }
 
+// Check if there's a token - if so, we need to verify it before deciding auth state
+const storedToken = localStorage.getItem('auth_token');
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
-  token: localStorage.getItem('auth_token'),
+  token: storedToken,
   isAuthenticated: false,
-  isLoading: false,
+  // Start with isLoading: true if there's a stored token (needs verification)
+  isLoading: !!storedToken,
   error: null,
 
   login: async (username: string, password: string) => {

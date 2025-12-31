@@ -11,7 +11,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #f9fafb; /* gray-50 */
+  background-color: #111827; /* gray-900 - match app background */
 }
 
 /* Custom component styles will go here */
@@ -281,4 +281,206 @@ button, select, a, .maplibregl-popup {
   button, a, [role="button"] {
     touch-action: manipulation;
   }
+}
+
+/* ================================================
+   BROADCAST MODE STYLES
+   ================================================ */
+
+/* Ripple effect animation for touch feedback */
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+.animate-ripple {
+  animation: ripple 400ms ease-out forwards;
+}
+
+/* Fade in animation for tooltips */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 150ms ease-in forwards;
+}
+
+/* Slide in from left for panels (sidebar on left) */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slideInRight {
+  animation: slideInRight 250ms ease-out forwards;
+}
+
+/* Slide in from right for panels (sidebar on right) */
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slideInLeft {
+  animation: slideInLeft 250ms ease-out forwards;
+}
+
+/* Slide up for toolbars */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slideUp {
+  animation: slideUp 250ms ease-out forwards;
+}
+
+/* Scale in for modals */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.animate-scaleIn {
+  animation: scaleIn 200ms ease-out forwards;
+}
+
+/* Broadcast sidebar styles */
+.broadcast-sidebar {
+  will-change: width;
+  transform: translateZ(0);
+}
+
+/* Broadcast mode - hide all scrollbars */
+.broadcast-mode ::-webkit-scrollbar {
+  display: none;
+}
+
+.broadcast-mode {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Broadcast mode - optimize for performance */
+.broadcast-mode {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+/* Large touch targets for broadcast mode (64px default) */
+.broadcast-touch-target {
+  min-width: 64px;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Icon button hover state */
+.broadcast-icon-button {
+  transition: transform 150ms ease-out, background-color 150ms ease-out;
+}
+
+.broadcast-icon-button:active {
+  transform: scale(0.95);
+}
+
+/* Toggle switch for layers */
+.broadcast-toggle {
+  position: relative;
+  width: 56px;
+  height: 28px;
+  border-radius: 14px;
+  transition: background-color 200ms ease-out;
+}
+
+.broadcast-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  transition: transform 200ms ease-out;
+}
+
+.broadcast-toggle.active .broadcast-toggle-knob {
+  transform: translateX(28px);
+}
+
+/* Annotation canvas pointer */
+.annotation-canvas-drawing {
+  cursor: crosshair;
+}
+
+/* Broadcast color swatch */
+.broadcast-color-swatch {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  transition: transform 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.broadcast-color-swatch:hover {
+  transform: scale(1.1);
+}
+
+.broadcast-color-swatch.active {
+  box-shadow: 0 0 0 3px white;
+}
+
+/* Smooth map camera transitions */
+.broadcast-map-container .maplibregl-canvas {
+  transition: opacity 200ms ease-out;
+}
+
+/* Broadcast header auto-hide */
+.broadcast-header {
+  will-change: transform, opacity;
+}
+
+/* Performance optimizations for 60 FPS */
+.gpu-accelerated {
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
 }

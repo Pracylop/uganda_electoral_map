@@ -10,6 +10,7 @@ import { ApprovalQueue } from './pages/ApprovalQueue';
 import { MapDashboard } from './pages/MapDashboard';
 import { DemographicsDashboard } from './pages/DemographicsDashboard';
 import { IssuesDashboard } from './pages/IssuesDashboard';
+import { BroadcastApp } from './pages/BroadcastApp';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
 import './App.css';
@@ -116,6 +117,14 @@ function App() {
               <Layout>
                 <IssuesDashboard />
               </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/broadcast"
+          element={
+            <ProtectedRoute>
+              <BroadcastApp />
             </ProtectedRoute>
           }
         />
