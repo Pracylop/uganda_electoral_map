@@ -7,6 +7,7 @@ export { BroadcastMap } from './BroadcastMap';
 export { BroadcastComparisonView } from './BroadcastComparisonView';
 export { BroadcastIssuesMap } from './BroadcastIssuesMap';
 export { LayersPanel } from './LayersPanel';
+export { IssuesPanel } from './IssuesPanel';
 export { AnnotationCanvas } from './AnnotationCanvas';
 export { AnnotationToolbar } from './AnnotationToolbar';
 export { ElectionSelector } from './ElectionSelector';

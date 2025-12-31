@@ -14,10 +14,14 @@ interface BroadcastState {
   sidebarExpanded: boolean;
   sidebarPosition: SidebarPosition;
   layersPanelOpen: boolean;
+  issuesPanelOpen: boolean;
   annotationMode: boolean;
   headerVisible: boolean;
   searchOpen: boolean;
   electionSelectorOpen: boolean;
+
+  // Issues filters
+  selectedCategoryIds: number[]; // Empty means all categories
 
   // View State
   viewMode: ViewMode;
@@ -48,6 +52,7 @@ interface BroadcastState {
   toggleSidebarPosition: () => void;
   setSidebarPosition: (position: SidebarPosition) => void;
   toggleLayersPanel: () => void;
+  toggleIssuesPanel: () => void;
   toggleAnnotationMode: () => void;
   showHeader: () => void;
   hideHeader: () => void;
@@ -71,6 +76,11 @@ interface BroadcastState {
   // Basemap actions
   setBasemapOpacity: (opacity: number) => void;
 
+  // Issues filter actions
+  toggleCategoryFilter: (categoryId: number) => void;
+  setCategoryFilters: (categoryIds: number[]) => void;
+  clearCategoryFilters: () => void;
+
   // Reset
   reset: () => void;
 }
@@ -79,10 +89,12 @@ const initialState = {
   sidebarExpanded: true,
   sidebarPosition: 'left' as SidebarPosition,
   layersPanelOpen: false,
+  issuesPanelOpen: false,
   annotationMode: false,
   headerVisible: true,
   searchOpen: false,
   electionSelectorOpen: false,
+  selectedCategoryIds: [] as number[],
   viewMode: 'map' as ViewMode,
   selectedElectionId: null,
   comparisonElectionId: null,
@@ -114,6 +126,14 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
 
   toggleLayersPanel: () => set((state) => ({
     layersPanelOpen: !state.layersPanelOpen,
+    issuesPanelOpen: false,
+    searchOpen: false,
+    electionSelectorOpen: false,
+  })),
+
+  toggleIssuesPanel: () => set((state) => ({
+    issuesPanelOpen: !state.issuesPanelOpen,
+    layersPanelOpen: false,
     searchOpen: false,
     electionSelectorOpen: false,
   })),
@@ -121,6 +141,7 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
   toggleAnnotationMode: () => set((state) => ({
     annotationMode: !state.annotationMode,
     layersPanelOpen: false,
+    issuesPanelOpen: false,
     searchOpen: false,
     electionSelectorOpen: false,
   })),
@@ -142,6 +163,7 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
 
   closeAllPanels: () => set({
     layersPanelOpen: false,
+    issuesPanelOpen: false,
     searchOpen: false,
     electionSelectorOpen: false,
   }),
@@ -263,6 +285,21 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
 
   // Basemap opacity (0-100)
   setBasemapOpacity: (opacity) => set({ basemapOpacity: Math.max(0, Math.min(100, opacity)) }),
+
+  // Issues filter actions
+  toggleCategoryFilter: (categoryId) => set((state) => {
+    const current = state.selectedCategoryIds;
+    const isSelected = current.includes(categoryId);
+    return {
+      selectedCategoryIds: isSelected
+        ? current.filter(id => id !== categoryId)
+        : [...current, categoryId],
+    };
+  }),
+
+  setCategoryFilters: (categoryIds) => set({ selectedCategoryIds: categoryIds }),
+
+  clearCategoryFilters: () => set({ selectedCategoryIds: [] }),
 
   // Reset
   reset: () => set(initialState),

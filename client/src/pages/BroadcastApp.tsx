@@ -9,6 +9,7 @@ import {
   BroadcastComparisonView,
   BroadcastIssuesMap,
   LayersPanel,
+  IssuesPanel,
   AnnotationCanvas,
   AnnotationToolbar,
   ElectionSelector,
@@ -36,6 +37,7 @@ export function BroadcastApp() {
     drillUp,
     toggleAnnotationMode,
     toggleLayersPanel,
+    toggleIssuesPanel,
     toggleSearch,
     toggleElectionSelector,
     setViewMode,
@@ -138,6 +140,13 @@ export function BroadcastApp() {
         case 'I':
           setViewMode('issues');
           break;
+        case 'f':
+        case 'F':
+          // Toggle issues filter panel (only when in issues view)
+          if (viewMode === 'issues') {
+            toggleIssuesPanel();
+          }
+          break;
         case 'l':
         case 'L':
           toggleLayersPanel();
@@ -188,12 +197,14 @@ export function BroadcastApp() {
   }, [
     annotationMode,
     currentLevel,
+    viewMode,
     handleExit,
     setSidebarExpanded,
     toggleSidebarPosition,
     setViewMode,
     toggleAnnotationMode,
     toggleLayersPanel,
+    toggleIssuesPanel,
     toggleSearch,
     toggleElectionSelector,
     resetToNational,
@@ -310,6 +321,7 @@ export function BroadcastApp() {
 
       {/* Panels & Modals */}
       <LayersPanel />
+      <IssuesPanel />
       <ElectionSelector />
       <RegionSearch />
 
