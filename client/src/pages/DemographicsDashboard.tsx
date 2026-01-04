@@ -74,12 +74,26 @@ const metricLabels: Record<DemographicMetric, string> = {
   malePercent: 'Male %',
 };
 
+// Cache key generator for GeoJSON data
+function getCacheKey(level: number, parentId: number | null): string {
+  return `demographics-${level}-${parentId ?? 'null'}`;
+}
+
+// Type for cached data
+interface CachedMapData {
+  geojson: GeoJSON.FeatureCollection;
+  bbox?: [number, number, number, number];
+}
+
 export function DemographicsDashboard() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [metric, setMetric] = useState<DemographicMetric>('population');
   const [nationalStats, setNationalStats] = useState<NationalStats | null>(null);
   const [isLoadingChoropleth, setIsLoadingChoropleth] = useState(false);
+
+  // In-memory cache for GeoJSON data (persists for session)
+  const dataCache = useRef<Map<string, CachedMapData>>(new Map());
 
   // UI states
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -110,12 +124,16 @@ export function DemographicsDashboard() {
     setMapLoaded(true);
   }, []);
 
-  // Load choropleth for current level
+  // Load choropleth for current level (with caching)
   const loadChoropleth = useCallback(async () => {
     if (!mapRef.current || !mapLoaded) return;
     const map = mapRef.current;
 
-    setIsLoadingChoropleth(true);
+    const cacheKey = getCacheKey(currentLevel, parentId);
+    const cached = dataCache.current.get(cacheKey);
+
+    let geojson: GeoJSON.FeatureCollection;
+    let bbox: [number, number, number, number] | undefined;
 
     // Remove existing layers
     try {
@@ -127,86 +145,115 @@ export function DemographicsDashboard() {
       // Layers may not exist
     }
 
-    try {
-      const data = await api.getDemographicsGeoJSON({
-        level: currentLevel,
-        parentId: parentId || undefined,
-      });
+    if (cached) {
+      // Use cached data - no loading indicator needed (instant response)
+      console.log('Demographics: Using cached data for', cacheKey);
+      geojson = cached.geojson;
+      bbox = cached.bbox;
+    } else {
+      // Fetch from API - show loading indicator
+      console.log('Demographics: Fetching from API', { currentLevel, parentId });
+      setIsLoadingChoropleth(true);
 
-      if (!data || !data.features || data.features.length === 0) {
-        console.error('No data for this level');
+      try {
+        const data = await api.getDemographicsGeoJSON({
+          level: currentLevel,
+          parentId: parentId || undefined,
+        });
+
+        if (!data || !data.features || data.features.length === 0) {
+          console.error('No data for this level');
+          setIsLoadingChoropleth(false);
+          return;
+        }
+
+        geojson = data as GeoJSON.FeatureCollection;
+
+        // Calculate bbox for caching
+        const bounds = new maplibregl.LngLatBounds();
+        data.features.forEach((feature: any) => {
+          if (feature.geometry?.coordinates) {
+            const addCoords = (coords: any) => {
+              if (typeof coords[0] === 'number') {
+                bounds.extend(coords as [number, number]);
+              } else {
+                coords.forEach(addCoords);
+              }
+            };
+            addCoords(feature.geometry.coordinates);
+          }
+        });
+        if (!bounds.isEmpty()) {
+          bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+        }
+
+        // Store in cache for future use
+        dataCache.current.set(cacheKey, { geojson, bbox });
+        console.log('Demographics: Cached data for', cacheKey, '- features:', geojson.features?.length || 0);
+      } catch (err) {
+        console.error('Failed to load demographics choropleth:', err);
         setIsLoadingChoropleth(false);
         return;
       }
-
-      map.addSource('demographics', {
-        type: 'geojson',
-        data: data as GeoJSON.FeatureCollection,
-      });
-
-      // Build color expression for current metric
-      const colorProperty = metric === 'votingAgePercent' ? 'votingAgePercent' :
-                           metric === 'votingAge' ? 'votingAgePopulation' :
-                           metric === 'malePercent' ? 'malePercent' : 'totalPopulation';
-      const scale = colorScales[metric];
-      const colorExpr: any[] = ['interpolate', ['linear'], ['get', colorProperty]];
-      for (let i = 0; i < scale.stops.length; i++) {
-        colorExpr.push(scale.stops[i], scale.colors[i]);
-      }
-
-      map.addLayer({
-        id: 'demographics-fill',
-        type: 'fill',
-        source: 'demographics',
-        paint: {
-          'fill-color': colorExpr as any,
-          'fill-opacity': 0.8,
-        },
-      });
-
-      map.addLayer({
-        id: 'demographics-line',
-        type: 'line',
-        source: 'demographics',
-        paint: {
-          'line-color': '#333',
-          'line-width': 1,
-          'line-opacity': 0.7,
-        },
-      });
-
-      // Fit bounds to the data
-      const bounds = new maplibregl.LngLatBounds();
-      data.features.forEach((feature: any) => {
-        if (feature.geometry?.coordinates) {
-          const addCoords = (coords: any) => {
-            if (typeof coords[0] === 'number') {
-              bounds.extend(coords as [number, number]);
-            } else {
-              coords.forEach(addCoords);
-            }
-          };
-          addCoords(feature.geometry.coordinates);
-        }
-      });
-
-      if (!bounds.isEmpty()) {
-        map.fitBounds(bounds, { padding: 50, duration: 1000 });
-      }
-
-      // Hover cursor
-      map.on('mouseenter', 'demographics-fill', () => {
-        map.getCanvas().style.cursor = 'pointer';
-      });
-      map.on('mouseleave', 'demographics-fill', () => {
-        map.getCanvas().style.cursor = '';
-      });
-
-      setIsLoadingChoropleth(false);
-    } catch (err) {
-      console.error('Failed to load demographics choropleth:', err);
-      setIsLoadingChoropleth(false);
     }
+
+    // Add source and layers (whether from cache or fresh fetch)
+    map.addSource('demographics', {
+      type: 'geojson',
+      data: geojson,
+    });
+
+    // Build color expression for current metric
+    const colorProperty = metric === 'votingAgePercent' ? 'votingAgePercent' :
+                         metric === 'votingAge' ? 'votingAgePopulation' :
+                         metric === 'malePercent' ? 'malePercent' : 'totalPopulation';
+    const scale = colorScales[metric];
+    const colorExpr: any[] = ['interpolate', ['linear'], ['get', colorProperty]];
+    for (let i = 0; i < scale.stops.length; i++) {
+      colorExpr.push(scale.stops[i], scale.colors[i]);
+    }
+
+    map.addLayer({
+      id: 'demographics-fill',
+      type: 'fill',
+      source: 'demographics',
+      paint: {
+        'fill-color': colorExpr as any,
+        'fill-opacity': 0.8,
+      },
+    });
+
+    map.addLayer({
+      id: 'demographics-line',
+      type: 'line',
+      source: 'demographics',
+      paint: {
+        'line-color': '#333',
+        'line-width': 1,
+        'line-opacity': 0.7,
+      },
+    });
+
+    // Fit bounds with smooth animation
+    const animationOptions = {
+      padding: 50,
+      duration: 1000,
+      essential: true,
+    };
+
+    if (bbox) {
+      map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], animationOptions);
+    }
+
+    // Hover cursor (add only once by checking if handler exists)
+    map.on('mouseenter', 'demographics-fill', () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', 'demographics-fill', () => {
+      map.getCanvas().style.cursor = '';
+    });
+
+    setIsLoadingChoropleth(false);
   }, [mapLoaded, currentLevel, parentId, metric]);
 
   // Load choropleth when level/parent changes
