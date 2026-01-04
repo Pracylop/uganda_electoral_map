@@ -86,29 +86,29 @@ export function DemographicsDashboard() {
     setMapLoaded(true);
   }, []);
 
-  // Load choropleth data when map is ready or metric changes
+  // Track if choropleth source is loaded
+  const [sourceLoaded, setSourceLoaded] = useState(false);
+
+  // Load choropleth data once when map is ready
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
     const map = mapRef.current;
 
     const loadChoropleth = async () => {
-      setIsLoadingChoropleth(true);
-
-      // Remove existing layers first (wrapped in try-catch like IssuesDashboard)
-      try {
-        ['demographics-fill', 'demographics-line', 'demographics-hover'].forEach(layerId => {
-          if (map.getLayer(layerId)) map.removeLayer(layerId);
-        });
-        if (map.getSource('demographics')) map.removeSource('demographics');
-      } catch (e) {
-        // Layers may not exist yet
+      // If source already exists, skip loading
+      if (map.getSource('demographics')) {
+        setSourceLoaded(true);
+        return;
       }
+
+      setIsLoadingChoropleth(true);
 
       try {
         const data = await api.getDemographicsGeoJSON({ level: 2 });
 
         if (!data || !data.features) {
           console.error('Invalid demographics data received');
+          setIsLoadingChoropleth(false);
           return;
         }
 
@@ -118,20 +118,14 @@ export function DemographicsDashboard() {
           data: data as GeoJSON.FeatureCollection,
         });
 
-        // Get color property based on metric
-        const colorProperty = metric === 'votingAgePercent' ? 'votingAgePercent' :
-                             metric === 'votingAge' ? 'votingAgePopulation' :
-                             metric === 'malePercent' ? 'malePercent' : 'totalPopulation';
-
-        const scale = colorScales[metric];
-
-        // Build color expression
+        // Add fill layer with initial metric
+        const colorProperty = 'totalPopulation';
+        const scale = colorScales.population;
         const colorExpr: any[] = ['interpolate', ['linear'], ['get', colorProperty]];
         for (let i = 0; i < scale.stops.length; i++) {
           colorExpr.push(scale.stops[i], scale.colors[i]);
         }
 
-        // Add fill layer
         map.addLayer({
           id: 'demographics-fill',
           type: 'fill',
@@ -160,7 +154,6 @@ export function DemographicsDashboard() {
           const props = e.features[0].properties;
           if (!props) return;
 
-          // Show popup with district info
           new maplibregl.Popup()
             .setLngLat(e.lngLat)
             .setHTML(`
@@ -181,6 +174,7 @@ export function DemographicsDashboard() {
           map.getCanvas().style.cursor = '';
         });
 
+        setSourceLoaded(true);
         setIsLoadingChoropleth(false);
       } catch (err) {
         console.error('Failed to load demographics choropleth:', err);
@@ -189,7 +183,35 @@ export function DemographicsDashboard() {
     };
 
     loadChoropleth();
-  }, [mapLoaded, metric]);
+  }, [mapLoaded]);
+
+  // Update fill color when metric changes (instant, no data reload)
+  useEffect(() => {
+    if (!mapRef.current || !sourceLoaded) return;
+    const map = mapRef.current;
+
+    try {
+      if (!map.getLayer('demographics-fill')) return;
+
+      // Get color property based on metric
+      const colorProperty = metric === 'votingAgePercent' ? 'votingAgePercent' :
+                           metric === 'votingAge' ? 'votingAgePopulation' :
+                           metric === 'malePercent' ? 'malePercent' : 'totalPopulation';
+
+      const scale = colorScales[metric];
+
+      // Build color expression
+      const colorExpr: any[] = ['interpolate', ['linear'], ['get', colorProperty]];
+      for (let i = 0; i < scale.stops.length; i++) {
+        colorExpr.push(scale.stops[i], scale.colors[i]);
+      }
+
+      // Update paint property (instant, no reload needed)
+      map.setPaintProperty('demographics-fill', 'fill-color', colorExpr);
+    } catch (err) {
+      console.error('Failed to update metric:', err);
+    }
+  }, [metric, sourceLoaded]);
 
   // Sort districts
   const sortedDistricts = [...districts].sort((a, b) => {
@@ -357,12 +379,12 @@ export function DemographicsDashboard() {
         <div className="flex-1 relative">
           <Map onLoad={handleMapLoad} className="absolute inset-0" />
 
-          {/* Loading Indicator */}
+          {/* Loading Indicator - Centered */}
           {isLoadingChoropleth && (
-            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
-              <div className="bg-gray-800/90 backdrop-blur-sm rounded-lg px-4 py-2 flex items-center gap-2 shadow-lg border border-gray-700">
-                <div className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-sm text-white">Loading demographic data...</span>
+            <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+              <div className="bg-gray-800/90 backdrop-blur-sm rounded-lg px-6 py-3 flex items-center gap-3 shadow-lg border border-gray-700">
+                <div className="w-5 h-5 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-white">Loading demographic data...</span>
               </div>
             </div>
           )}
