@@ -68,6 +68,7 @@ export function DemographicsDashboard() {
   const [isCompareMode, setIsCompareMode] = useState(false);
   const [sortBy, setSortBy] = useState<'name' | 'population' | 'votingAge'>('population');
   const [sortAsc, setSortAsc] = useState(false);
+  const [isLoadingChoropleth, setIsLoadingChoropleth] = useState(false);
 
   // Load demographics stats
   useEffect(() => {
@@ -91,6 +92,8 @@ export function DemographicsDashboard() {
     const map = mapRef.current;
 
     const loadChoropleth = async () => {
+      setIsLoadingChoropleth(true);
+
       // Remove existing layers first (wrapped in try-catch like IssuesDashboard)
       try {
         ['demographics-fill', 'demographics-line', 'demographics-hover'].forEach(layerId => {
@@ -177,8 +180,11 @@ export function DemographicsDashboard() {
         map.on('mouseleave', 'demographics-fill', () => {
           map.getCanvas().style.cursor = '';
         });
+
+        setIsLoadingChoropleth(false);
       } catch (err) {
         console.error('Failed to load demographics choropleth:', err);
+        setIsLoadingChoropleth(false);
       }
     };
 
@@ -350,6 +356,16 @@ export function DemographicsDashboard() {
         {/* Map */}
         <div className="flex-1 relative">
           <Map onLoad={handleMapLoad} className="absolute inset-0" />
+
+          {/* Loading Indicator */}
+          {isLoadingChoropleth && (
+            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
+              <div className="bg-gray-800/90 backdrop-blur-sm rounded-lg px-4 py-2 flex items-center gap-2 shadow-lg border border-gray-700">
+                <div className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-sm text-white">Loading demographic data...</span>
+              </div>
+            </div>
+          )}
 
           {/* Selected District Detail Panel */}
           {selectedDistrict && !isCompareMode && (
