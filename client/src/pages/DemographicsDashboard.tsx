@@ -88,9 +88,18 @@ export function DemographicsDashboard() {
   // Load choropleth data when map is ready or metric changes
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
+    const map = mapRef.current;
 
     const loadChoropleth = async () => {
-      const map = mapRef.current!;
+      // Remove existing layers first (wrapped in try-catch like IssuesDashboard)
+      try {
+        ['demographics-fill', 'demographics-line', 'demographics-hover'].forEach(layerId => {
+          if (map.getLayer(layerId)) map.removeLayer(layerId);
+        });
+        if (map.getSource('demographics')) map.removeSource('demographics');
+      } catch (e) {
+        // Layers may not exist yet
+      }
 
       try {
         const data = await api.getDemographicsGeoJSON({ level: 2 });
@@ -99,12 +108,6 @@ export function DemographicsDashboard() {
           console.error('Invalid demographics data received');
           return;
         }
-
-        // Remove existing layers
-        if (map.getLayer('demographics-fill')) map.removeLayer('demographics-fill');
-        if (map.getLayer('demographics-line')) map.removeLayer('demographics-line');
-        if (map.getLayer('demographics-hover')) map.removeLayer('demographics-hover');
-        if (map.getSource('demographics')) map.removeSource('demographics');
 
         // Add source
         map.addSource('demographics', {
@@ -143,25 +146,28 @@ export function DemographicsDashboard() {
           source: 'demographics',
           paint: {
             'line-color': '#333',
-            'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 3, 1],
+            'line-width': 1,
             'line-opacity': 0.7,
           },
         });
 
-        // Click handler
+        // Click handler for district selection
         map.on('click', 'demographics-fill', (e) => {
           if (!e.features || e.features.length === 0) return;
           const props = e.features[0].properties;
           if (!props) return;
 
-          const district = districts.find(d => d.districtId === props.id);
-          if (district) {
-            if (isCompareMode && selectedDistrict) {
-              setCompareDistrict(district);
-            } else {
-              setSelectedDistrict(district);
-            }
-          }
+          // Show popup with district info
+          new maplibregl.Popup()
+            .setLngLat(e.lngLat)
+            .setHTML(`
+              <div style="padding: 8px; color: #000;">
+                <h3 style="font-weight: bold; margin-bottom: 4px;">${props.name}</h3>
+                <p style="margin: 0;">Population: <strong>${Number(props.totalPopulation).toLocaleString()}</strong></p>
+                <p style="margin: 0;">Voting Age: <strong>${Number(props.votingAgePopulation).toLocaleString()}</strong></p>
+              </div>
+            `)
+            .addTo(map);
         });
 
         // Hover cursor
@@ -171,14 +177,13 @@ export function DemographicsDashboard() {
         map.on('mouseleave', 'demographics-fill', () => {
           map.getCanvas().style.cursor = '';
         });
-
       } catch (err) {
         console.error('Failed to load demographics choropleth:', err);
       }
     };
 
     loadChoropleth();
-  }, [mapLoaded, metric, districts, isCompareMode, selectedDistrict]);
+  }, [mapLoaded, metric]);
 
   // Sort districts
   const sortedDistricts = [...districts].sort((a, b) => {
