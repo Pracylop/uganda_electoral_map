@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 type DemographicMetric = 'population' | 'votingAge' | 'votingAgePercent' | 'malePercent';
+type InteractionMode = 'stats' | 'drilldown';
 
 interface DistrictStats {
   districtId: number;
@@ -65,10 +66,13 @@ export function DemographicsDashboard() {
   const [districts, setDistricts] = useState<DistrictStats[]>([]);
   const [selectedDistrict, setSelectedDistrict] = useState<DistrictStats | null>(null);
   const [compareDistrict, setCompareDistrict] = useState<DistrictStats | null>(null);
-  const [isCompareMode, setIsCompareMode] = useState(false);
-  const [sortBy, setSortBy] = useState<'name' | 'population' | 'votingAge'>('population');
-  const [sortAsc, setSortAsc] = useState(false);
   const [isLoadingChoropleth, setIsLoadingChoropleth] = useState(false);
+  const [sourceLoaded, setSourceLoaded] = useState(false);
+
+  // New UI states
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>('stats');
+  const [isComparing, setIsComparing] = useState(false);
 
   // Load demographics stats
   useEffect(() => {
@@ -86,16 +90,12 @@ export function DemographicsDashboard() {
     setMapLoaded(true);
   }, []);
 
-  // Track if choropleth source is loaded
-  const [sourceLoaded, setSourceLoaded] = useState(false);
-
   // Load choropleth data once when map is ready
   useEffect(() => {
     if (!mapRef.current || !mapLoaded) return;
     const map = mapRef.current;
 
     const loadChoropleth = async () => {
-      // If source already exists, skip loading
       if (map.getSource('demographics')) {
         setSourceLoaded(true);
         return;
@@ -112,13 +112,11 @@ export function DemographicsDashboard() {
           return;
         }
 
-        // Add source
         map.addSource('demographics', {
           type: 'geojson',
           data: data as GeoJSON.FeatureCollection,
         });
 
-        // Add fill layer with initial metric
         const colorProperty = 'totalPopulation';
         const scale = colorScales.population;
         const colorExpr: any[] = ['interpolate', ['linear'], ['get', colorProperty]];
@@ -136,7 +134,6 @@ export function DemographicsDashboard() {
           },
         });
 
-        // Add border
         map.addLayer({
           id: 'demographics-line',
           type: 'line',
@@ -146,24 +143,6 @@ export function DemographicsDashboard() {
             'line-width': 1,
             'line-opacity': 0.7,
           },
-        });
-
-        // Click handler for district selection
-        map.on('click', 'demographics-fill', (e) => {
-          if (!e.features || e.features.length === 0) return;
-          const props = e.features[0].properties;
-          if (!props) return;
-
-          new maplibregl.Popup()
-            .setLngLat(e.lngLat)
-            .setHTML(`
-              <div style="padding: 8px; color: #000;">
-                <h3 style="font-weight: bold; margin-bottom: 4px;">${props.name}</h3>
-                <p style="margin: 0;">Population: <strong>${Number(props.totalPopulation).toLocaleString()}</strong></p>
-                <p style="margin: 0;">Voting Age: <strong>${Number(props.votingAgePopulation).toLocaleString()}</strong></p>
-              </div>
-            `)
-            .addTo(map);
         });
 
         // Hover cursor
@@ -185,7 +164,47 @@ export function DemographicsDashboard() {
     loadChoropleth();
   }, [mapLoaded]);
 
-  // Update fill color when metric changes (instant, no data reload)
+  // Handle map clicks based on interaction mode
+  useEffect(() => {
+    if (!mapRef.current || !sourceLoaded) return;
+    const map = mapRef.current;
+
+    const handleClick = (e: maplibregl.MapLayerMouseEvent) => {
+      if (!e.features || e.features.length === 0) return;
+      const props = e.features[0].properties;
+      if (!props) return;
+
+      const district = districts.find(d => d.districtId === props.id);
+      if (!district) return;
+
+      if (interactionMode === 'stats') {
+        if (isComparing && selectedDistrict) {
+          setCompareDistrict(district);
+        } else {
+          setSelectedDistrict(district);
+          setSidebarOpen(true); // Open sidebar to show stats
+        }
+      } else {
+        // Drill-down mode - show popup for now (future: drill to constituencies)
+        new maplibregl.Popup()
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div style="padding: 8px; color: #000;">
+              <h3 style="font-weight: bold; margin-bottom: 4px;">${props.name}</h3>
+              <p style="margin: 0; font-size: 12px; color: #666;">Click to drill down (coming soon)</p>
+            </div>
+          `)
+          .addTo(map);
+      }
+    };
+
+    map.on('click', 'demographics-fill', handleClick);
+    return () => {
+      map.off('click', 'demographics-fill', handleClick);
+    };
+  }, [sourceLoaded, districts, interactionMode, isComparing, selectedDistrict]);
+
+  // Update fill color when metric changes
   useEffect(() => {
     if (!mapRef.current || !sourceLoaded) return;
     const map = mapRef.current;
@@ -193,185 +212,277 @@ export function DemographicsDashboard() {
     try {
       if (!map.getLayer('demographics-fill')) return;
 
-      // Get color property based on metric
       const colorProperty = metric === 'votingAgePercent' ? 'votingAgePercent' :
                            metric === 'votingAge' ? 'votingAgePopulation' :
                            metric === 'malePercent' ? 'malePercent' : 'totalPopulation';
 
       const scale = colorScales[metric];
-
-      // Build color expression
       const colorExpr: any[] = ['interpolate', ['linear'], ['get', colorProperty]];
       for (let i = 0; i < scale.stops.length; i++) {
         colorExpr.push(scale.stops[i], scale.colors[i]);
       }
 
-      // Update paint property (instant, no reload needed)
       map.setPaintProperty('demographics-fill', 'fill-color', colorExpr);
     } catch (err) {
       console.error('Failed to update metric:', err);
     }
   }, [metric, sourceLoaded]);
 
-  // Sort districts
-  const sortedDistricts = [...districts].sort((a, b) => {
-    let comparison = 0;
-    if (sortBy === 'name') {
-      comparison = a.districtName.localeCompare(b.districtName);
-    } else if (sortBy === 'population') {
-      comparison = b.totalPopulation - a.totalPopulation;
-    } else if (sortBy === 'votingAge') {
-      comparison = b.votingAgePopulation - a.votingAgePopulation;
-    }
-    return sortAsc ? -comparison : comparison;
-  });
-
   const formatNumber = (n: number) => n.toLocaleString();
   const formatPercent = (n: number, total: number) => ((n / total) * 100).toFixed(1) + '%';
-
   const scale = colorScales[metric];
+
+  // Clear selection
+  const clearSelection = () => {
+    setSelectedDistrict(null);
+    setCompareDistrict(null);
+    setIsComparing(false);
+  };
+
+  // Start comparison
+  const startComparison = () => {
+    if (selectedDistrict) {
+      setIsComparing(true);
+      setCompareDistrict(null);
+    }
+  };
 
   return (
     <div className="h-screen flex bg-gray-900">
-      {/* Left Sidebar - Statistics */}
-      <div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="p-4 border-b border-gray-700">
-          <h1 className="text-xl font-bold text-white">Demographics</h1>
-          <p className="text-sm text-gray-400">2024 Uganda National Census</p>
-        </div>
+      {/* Collapsible Sidebar */}
+      <div
+        className={`bg-gray-800 border-r border-gray-700 flex flex-col overflow-hidden transition-all duration-300 ${
+          sidebarOpen ? 'w-80' : 'w-0'
+        }`}
+      >
+        {sidebarOpen && (
+          <>
+            {/* Header */}
+            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+              <div>
+                <h1 className="text-lg font-bold text-white">Demographics</h1>
+                <p className="text-xs text-gray-400">2024 Census Data</p>
+              </div>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                title="Collapse sidebar"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                </svg>
+              </button>
+            </div>
 
-        {/* National Stats */}
-        {nationalStats && (
-          <div className="p-4 border-b border-gray-700">
-            <h2 className="text-sm font-semibold text-gray-300 mb-3">National Totals</h2>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="bg-gray-700/50 rounded p-2">
-                <div className="text-gray-400">Population</div>
-                <div className="text-white font-bold">{(nationalStats.totalPopulation / 1000000).toFixed(1)}M</div>
+            {/* Context-specific content */}
+            {selectedDistrict ? (
+              // District Stats View
+              <div className="flex-1 overflow-y-auto">
+                <div className="p-4 border-b border-gray-700">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <h2 className="text-lg font-bold text-white">{selectedDistrict.districtName}</h2>
+                      <p className="text-xs text-gray-400">District Statistics</p>
+                    </div>
+                    <button
+                      onClick={clearSelection}
+                      className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                      title="Back to national"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* District Stats Grid */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <StatCard label="Population" value={formatNumber(selectedDistrict.totalPopulation)} />
+                    <StatCard label="Voting Age" value={formatNumber(selectedDistrict.votingAgePopulation)} color="text-green-400" />
+                    <StatCard label="Youth (0-17)" value={formatNumber(selectedDistrict.youthPopulation)} color="text-blue-400" />
+                    <StatCard label="Elderly (60+)" value={formatNumber(selectedDistrict.elderlyPopulation)} color="text-orange-400" />
+                    <StatCard label="Households" value={formatNumber(selectedDistrict.numberOfHouseholds)} color="text-purple-400" />
+                    <StatCard label="Parishes" value={selectedDistrict.parishCount.toString()} />
+                  </div>
+
+                  {/* Gender & Voting */}
+                  <div className="mt-3 pt-3 border-t border-gray-700 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Gender Split</span>
+                      <span className="text-white">
+                        {formatPercent(selectedDistrict.malePopulation, selectedDistrict.totalPopulation)} M / {formatPercent(selectedDistrict.femalePopulation, selectedDistrict.totalPopulation)} F
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Voting Age %</span>
+                      <span className="text-green-400 font-medium">
+                        {formatPercent(selectedDistrict.votingAgePopulation, selectedDistrict.totalPopulation)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Compare Button */}
+                  {!isComparing && (
+                    <button
+                      onClick={startComparison}
+                      className="mt-4 w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition-colors"
+                    >
+                      Compare with another district
+                    </button>
+                  )}
+                </div>
+
+                {/* Comparison Panel */}
+                {isComparing && (
+                  <div className="p-4 border-b border-gray-700 bg-gray-750">
+                    <div className="flex justify-between items-center mb-3">
+                      <h3 className="text-sm font-semibold text-white">Comparison Mode</h3>
+                      <button
+                        onClick={() => { setIsComparing(false); setCompareDistrict(null); }}
+                        className="text-xs text-gray-400 hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+
+                    {compareDistrict ? (
+                      <div className="space-y-2">
+                        <div className="text-sm text-gray-400 mb-2">
+                          <span className="text-blue-400">{selectedDistrict.districtName}</span>
+                          {' vs '}
+                          <span className="text-green-400">{compareDistrict.districtName}</span>
+                        </div>
+                        <CompareTable a={selectedDistrict} b={compareDistrict} />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400">
+                        Click on another district to compare
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="bg-gray-700/50 rounded p-2">
-                <div className="text-gray-400">Voting Age</div>
-                <div className="text-green-400 font-bold">{(nationalStats.votingAgePopulation / 1000000).toFixed(1)}M</div>
-              </div>
-              <div className="bg-gray-700/50 rounded p-2">
-                <div className="text-gray-400">Youth (0-17)</div>
-                <div className="text-blue-400 font-bold">{(nationalStats.youthPopulation / 1000000).toFixed(1)}M</div>
-              </div>
-              <div className="bg-gray-700/50 rounded p-2">
-                <div className="text-gray-400">Households</div>
-                <div className="text-purple-400 font-bold">{(nationalStats.numberOfHouseholds / 1000000).toFixed(1)}M</div>
-              </div>
-            </div>
-            <div className="mt-3 text-xs text-gray-500">
-              Male: {formatPercent(nationalStats.malePopulation, nationalStats.totalPopulation)} |
-              Female: {formatPercent(nationalStats.femalePopulation, nationalStats.totalPopulation)}
-            </div>
-          </div>
+            ) : (
+              // National Stats View
+              <>
+                {nationalStats && (
+                  <div className="p-4 border-b border-gray-700">
+                    <h2 className="text-sm font-semibold text-gray-300 mb-3">National Totals</h2>
+                    <div className="grid grid-cols-2 gap-2">
+                      <StatCard label="Population" value={`${(nationalStats.totalPopulation / 1000000).toFixed(1)}M`} />
+                      <StatCard label="Voting Age" value={`${(nationalStats.votingAgePopulation / 1000000).toFixed(1)}M`} color="text-green-400" />
+                      <StatCard label="Youth (0-17)" value={`${(nationalStats.youthPopulation / 1000000).toFixed(1)}M`} color="text-blue-400" />
+                      <StatCard label="Households" value={`${(nationalStats.numberOfHouseholds / 1000000).toFixed(1)}M`} color="text-purple-400" />
+                    </div>
+                    <div className="mt-2 text-xs text-gray-500">
+                      {formatPercent(nationalStats.malePopulation, nationalStats.totalPopulation)} Male | {formatPercent(nationalStats.femalePopulation, nationalStats.totalPopulation)} Female
+                    </div>
+                  </div>
+                )}
+
+                {/* Metric Selector */}
+                <div className="p-4 border-b border-gray-700">
+                  <label className="text-xs text-gray-400 block mb-2">Display Metric</label>
+                  <select
+                    value={metric}
+                    onChange={(e) => setMetric(e.target.value as DemographicMetric)}
+                    className="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600"
+                  >
+                    {Object.entries(metricLabels).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+
+                  {/* Legend */}
+                  <div className="mt-3">
+                    <div className="flex h-2 rounded overflow-hidden">
+                      {scale.colors.map((color, i) => (
+                        <div key={i} className="flex-1" style={{ backgroundColor: color }} />
+                      ))}
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>{metric.includes('Percent') ? `${scale.stops[0]}%` : formatNumber(scale.stops[0])}</span>
+                      <span>{metric.includes('Percent') ? `${scale.stops[scale.stops.length - 1]}%` : formatNumber(scale.stops[scale.stops.length - 1])}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* District count info */}
+                <div className="p-4 text-sm text-gray-400">
+                  <p>{districts.length} districts loaded</p>
+                  <p className="text-xs mt-1">Click on a district to view details</p>
+                </div>
+              </>
+            )}
+          </>
         )}
-
-        {/* Metric Selector */}
-        <div className="p-4 border-b border-gray-700">
-          <label className="text-sm text-gray-400 block mb-2">Display Metric</label>
-          <select
-            value={metric}
-            onChange={(e) => setMetric(e.target.value as DemographicMetric)}
-            className="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600"
-          >
-            {Object.entries(metricLabels).map(([key, label]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
-
-          {/* Legend */}
-          <div className="mt-3">
-            <div className="flex h-3 rounded overflow-hidden">
-              {scale.colors.map((color, i) => (
-                <div key={i} className="flex-1" style={{ backgroundColor: color }} />
-              ))}
-            </div>
-            <div className="flex justify-between text-xs text-gray-500 mt-1">
-              <span>{metric.includes('Percent') ? `${scale.stops[0]}%` : formatNumber(scale.stops[0])}</span>
-              <span>{metric.includes('Percent') ? `${scale.stops[scale.stops.length - 1]}%` : formatNumber(scale.stops[scale.stops.length - 1])}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* District List */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-3 border-b border-gray-700 flex items-center justify-between">
-            <span className="text-sm text-gray-400">Districts ({districts.length})</span>
-            <div className="flex gap-1">
-              <button
-                onClick={() => { setSortBy('name'); setSortAsc(!sortAsc); }}
-                className={`px-2 py-1 text-xs rounded ${sortBy === 'name' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400'}`}
-              >
-                Name
-              </button>
-              <button
-                onClick={() => { setSortBy('population'); setSortAsc(!sortAsc); }}
-                className={`px-2 py-1 text-xs rounded ${sortBy === 'population' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400'}`}
-              >
-                Pop
-              </button>
-            </div>
-          </div>
-          <div className="divide-y divide-gray-700/50">
-            {sortedDistricts.map((district) => (
-              <button
-                key={district.districtId}
-                onClick={() => {
-                  if (isCompareMode && selectedDistrict) {
-                    setCompareDistrict(district);
-                  } else {
-                    setSelectedDistrict(district);
-                  }
-                }}
-                className={`w-full p-3 text-left hover:bg-gray-700/50 transition-colors ${
-                  selectedDistrict?.districtId === district.districtId ? 'bg-blue-900/30 border-l-2 border-blue-500' :
-                  compareDistrict?.districtId === district.districtId ? 'bg-green-900/30 border-l-2 border-green-500' : ''
-                }`}
-              >
-                <div className="flex justify-between items-center">
-                  <span className="text-white text-sm font-medium">{district.districtName}</span>
-                  <span className="text-gray-400 text-xs">{formatNumber(district.totalPopulation)}</span>
-                </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  Voting: {formatNumber(district.votingAgePopulation)} ({formatPercent(district.votingAgePopulation, district.totalPopulation)})
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
 
       {/* Main Content - Map */}
       <div className="flex-1 flex flex-col">
         {/* Toolbar */}
         <div className="bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => {
-                setIsCompareMode(!isCompareMode);
-                if (!isCompareMode) {
-                  setCompareDistrict(null);
-                }
-              }}
-              className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                isCompareMode ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              {isCompareMode ? 'Exit Compare' : 'Compare Regions'}
-            </button>
-            {isCompareMode && (
-              <span className="text-sm text-gray-400">
-                {selectedDistrict ? `Selected: ${selectedDistrict.districtName}` : 'Click a district to select'}
-                {compareDistrict && ` vs ${compareDistrict.districtName}`}
-              </span>
+          <div className="flex items-center gap-3">
+            {/* Sidebar Toggle */}
+            {!sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="p-2 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                title="Open sidebar"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+            )}
+
+            {/* Interaction Mode Toggle */}
+            <div className="flex bg-gray-700 rounded-lg p-0.5">
+              <button
+                onClick={() => setInteractionMode('stats')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  interactionMode === 'stats'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                View Stats
+              </button>
+              <button
+                onClick={() => setInteractionMode('drilldown')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  interactionMode === 'drilldown'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Drill Down
+              </button>
+            </div>
+
+            {/* Metric selector (compact) when sidebar closed */}
+            {!sidebarOpen && (
+              <select
+                value={metric}
+                onChange={(e) => setMetric(e.target.value as DemographicMetric)}
+                className="bg-gray-700 text-white rounded px-3 py-1.5 text-sm border border-gray-600"
+              >
+                {Object.entries(metricLabels).map(([key, label]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </select>
             )}
           </div>
-          <div className="text-sm text-gray-400">
-            Click on a district to view details
+
+          <div className="flex items-center gap-3">
+            {selectedDistrict && (
+              <span className="text-sm text-gray-400">
+                Selected: <span className="text-white">{selectedDistrict.districtName}</span>
+              </span>
+            )}
+            <span className="text-xs text-gray-500">
+              {interactionMode === 'stats' ? 'Click to view statistics' : 'Click to drill down'}
+            </span>
           </div>
         </div>
 
@@ -379,7 +490,7 @@ export function DemographicsDashboard() {
         <div className="flex-1 relative">
           <Map onLoad={handleMapLoad} className="absolute inset-0" />
 
-          {/* Loading Indicator - Centered */}
+          {/* Loading Indicator */}
           {isLoadingChoropleth && (
             <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
               <div className="bg-gray-800/90 backdrop-blur-sm rounded-lg px-6 py-3 flex items-center gap-3 shadow-lg border border-gray-700">
@@ -389,86 +500,18 @@ export function DemographicsDashboard() {
             </div>
           )}
 
-          {/* Selected District Detail Panel */}
-          {selectedDistrict && !isCompareMode && (
-            <div className="absolute top-4 right-4 w-80 bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-700 z-10">
-              <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                <h3 className="font-bold text-white">{selectedDistrict.districtName}</h3>
-                <button
-                  onClick={() => setSelectedDistrict(null)}
-                  className="text-gray-400 hover:text-white"
-                >
-                  ✕
-                </button>
+          {/* Legend (when sidebar closed) */}
+          {!sidebarOpen && (
+            <div className="absolute bottom-4 left-4 bg-gray-800/90 backdrop-blur-sm rounded-lg p-3 z-10 border border-gray-700">
+              <div className="text-xs text-gray-400 mb-1">{metricLabels[metric]}</div>
+              <div className="flex h-2 w-32 rounded overflow-hidden">
+                {scale.colors.map((color, i) => (
+                  <div key={i} className="flex-1" style={{ backgroundColor: color }} />
+                ))}
               </div>
-              <div className="p-4 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <StatCard label="Total Population" value={formatNumber(selectedDistrict.totalPopulation)} />
-                  <StatCard label="Voting Age (18+)" value={formatNumber(selectedDistrict.votingAgePopulation)} color="text-green-400" />
-                  <StatCard label="Youth (0-17)" value={formatNumber(selectedDistrict.youthPopulation)} color="text-blue-400" />
-                  <StatCard label="Elderly (60+)" value={formatNumber(selectedDistrict.elderlyPopulation)} color="text-orange-400" />
-                  <StatCard label="Households" value={formatNumber(selectedDistrict.numberOfHouseholds)} color="text-purple-400" />
-                  <StatCard label="Parishes" value={selectedDistrict.parishCount.toString()} />
-                </div>
-                <div className="pt-3 border-t border-gray-700">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Gender Split</span>
-                    <span className="text-white">
-                      {formatPercent(selectedDistrict.malePopulation, selectedDistrict.totalPopulation)} M / {formatPercent(selectedDistrict.femalePopulation, selectedDistrict.totalPopulation)} F
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm mt-1">
-                    <span className="text-gray-400">Voting Age %</span>
-                    <span className="text-green-400 font-medium">
-                      {formatPercent(selectedDistrict.votingAgePopulation, selectedDistrict.totalPopulation)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Compare Panel */}
-          {isCompareMode && selectedDistrict && compareDistrict && (
-            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-700 z-10">
-              <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                <h3 className="font-bold text-white">Region Comparison</h3>
-                <button
-                  onClick={() => { setSelectedDistrict(null); setCompareDistrict(null); }}
-                  className="text-gray-400 hover:text-white"
-                >
-                  ✕
-                </button>
-              </div>
-              <div className="p-4">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-gray-400">
-                      <th className="text-left py-2">Metric</th>
-                      <th className="text-right py-2 text-blue-400">{selectedDistrict.districtName}</th>
-                      <th className="text-right py-2 text-green-400">{compareDistrict.districtName}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-white">
-                    <CompareRow label="Population" a={selectedDistrict.totalPopulation} b={compareDistrict.totalPopulation} />
-                    <CompareRow label="Voting Age" a={selectedDistrict.votingAgePopulation} b={compareDistrict.votingAgePopulation} />
-                    <CompareRow label="Youth" a={selectedDistrict.youthPopulation} b={compareDistrict.youthPopulation} />
-                    <CompareRow label="Elderly" a={selectedDistrict.elderlyPopulation} b={compareDistrict.elderlyPopulation} />
-                    <CompareRow label="Households" a={selectedDistrict.numberOfHouseholds} b={compareDistrict.numberOfHouseholds} />
-                    <CompareRow
-                      label="Voting %"
-                      a={(selectedDistrict.votingAgePopulation / selectedDistrict.totalPopulation) * 100}
-                      b={(compareDistrict.votingAgePopulation / compareDistrict.totalPopulation) * 100}
-                      isPercent
-                    />
-                    <CompareRow
-                      label="Male %"
-                      a={(selectedDistrict.malePopulation / selectedDistrict.totalPopulation) * 100}
-                      b={(compareDistrict.malePopulation / compareDistrict.totalPopulation) * 100}
-                      isPercent
-                    />
-                  </tbody>
-                </table>
+              <div className="flex justify-between text-xs text-gray-500 mt-1">
+                <span>{metric.includes('Percent') ? `${scale.stops[0]}%` : formatNumber(scale.stops[0])}</span>
+                <span>{metric.includes('Percent') ? `${scale.stops[scale.stops.length - 1]}%` : formatNumber(scale.stops[scale.stops.length - 1])}</span>
               </div>
             </div>
           )}
@@ -483,25 +526,45 @@ function StatCard({ label, value, color = 'text-white' }: { label: string; value
   return (
     <div className="bg-gray-700/50 rounded p-2">
       <div className="text-xs text-gray-400">{label}</div>
-      <div className={`font-bold ${color}`}>{value}</div>
+      <div className={`font-bold text-sm ${color}`}>{value}</div>
     </div>
   );
 }
 
-function CompareRow({ label, a, b, isPercent = false }: { label: string; a: number; b: number; isPercent?: boolean }) {
-  const diff = a - b;
-  const aWins = diff > 0;
+function CompareTable({ a, b }: { a: DistrictStats; b: DistrictStats }) {
+  const formatNum = (n: number) => n.toLocaleString();
+  const formatPct = (n: number, t: number) => ((n / t) * 100).toFixed(1) + '%';
+
+  const rows = [
+    { label: 'Population', aVal: a.totalPopulation, bVal: b.totalPopulation },
+    { label: 'Voting Age', aVal: a.votingAgePopulation, bVal: b.votingAgePopulation },
+    { label: 'Youth', aVal: a.youthPopulation, bVal: b.youthPopulation },
+    { label: 'Elderly', aVal: a.elderlyPopulation, bVal: b.elderlyPopulation },
+    { label: 'Households', aVal: a.numberOfHouseholds, bVal: b.numberOfHouseholds },
+  ];
 
   return (
-    <tr className="border-t border-gray-700">
-      <td className="py-2 text-gray-400">{label}</td>
-      <td className={`text-right py-2 ${aWins ? 'text-blue-400 font-medium' : ''}`}>
-        {isPercent ? `${a.toFixed(1)}%` : a.toLocaleString()}
-      </td>
-      <td className={`text-right py-2 ${!aWins ? 'text-green-400 font-medium' : ''}`}>
-        {isPercent ? `${b.toFixed(1)}%` : b.toLocaleString()}
-      </td>
-    </tr>
+    <div className="text-xs space-y-1">
+      {rows.map(row => {
+        const aWins = row.aVal > row.bVal;
+        return (
+          <div key={row.label} className="flex justify-between items-center py-1 border-b border-gray-700/50">
+            <span className="text-gray-400 w-20">{row.label}</span>
+            <span className={`${aWins ? 'text-blue-400 font-medium' : 'text-gray-300'}`}>
+              {formatNum(row.aVal)}
+            </span>
+            <span className={`${!aWins ? 'text-green-400 font-medium' : 'text-gray-300'}`}>
+              {formatNum(row.bVal)}
+            </span>
+          </div>
+        );
+      })}
+      <div className="flex justify-between items-center py-1">
+        <span className="text-gray-400 w-20">Voting %</span>
+        <span className="text-blue-300">{formatPct(a.votingAgePopulation, a.totalPopulation)}</span>
+        <span className="text-green-300">{formatPct(b.votingAgePopulation, b.totalPopulation)}</span>
+      </div>
+    </div>
   );
 }
 
