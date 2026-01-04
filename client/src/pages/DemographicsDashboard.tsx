@@ -7,9 +7,25 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 type DemographicMetric = 'population' | 'votingAge' | 'votingAgePercent' | 'malePercent';
 type InteractionMode = 'stats' | 'drilldown';
 
-interface DistrictStats {
-  districtId: number;
-  districtName: string;
+// Admin levels: 1=Subregion, 2=District, 3=Constituency, 4=Subcounty, 5=Parish
+const LEVEL_NAMES: Record<number, string> = {
+  1: 'Subregion',
+  2: 'District',
+  3: 'Constituency',
+  4: 'Subcounty',
+  5: 'Parish',
+};
+
+interface BreadcrumbItem {
+  id: number;
+  name: string;
+  level: number;
+}
+
+interface UnitStats {
+  id: number;
+  name: string;
+  level: number;
   totalPopulation: number;
   malePopulation: number;
   femalePopulation: number;
@@ -63,23 +79,27 @@ export function DemographicsDashboard() {
   const [mapLoaded, setMapLoaded] = useState(false);
   const [metric, setMetric] = useState<DemographicMetric>('population');
   const [nationalStats, setNationalStats] = useState<NationalStats | null>(null);
-  const [districts, setDistricts] = useState<DistrictStats[]>([]);
-  const [selectedDistrict, setSelectedDistrict] = useState<DistrictStats | null>(null);
-  const [compareDistrict, setCompareDistrict] = useState<DistrictStats | null>(null);
   const [isLoadingChoropleth, setIsLoadingChoropleth] = useState(false);
-  const [sourceLoaded, setSourceLoaded] = useState(false);
 
-  // New UI states
+  // UI states
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('stats');
+
+  // Drill-down state
+  const [currentLevel, setCurrentLevel] = useState(2); // Start at district level
+  const [parentId, setParentId] = useState<number | null>(null);
+  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
+
+  // Selected unit for stats
+  const [selectedUnit, setSelectedUnit] = useState<UnitStats | null>(null);
+  const [compareUnit, setCompareUnit] = useState<UnitStats | null>(null);
   const [isComparing, setIsComparing] = useState(false);
 
-  // Load demographics stats
+  // Load national stats
   useEffect(() => {
     api.getDemographicsStats()
       .then((data) => {
         setNationalStats(data.national);
-        setDistricts(data.districts);
       })
       .catch((err) => console.error('Failed to load demographics:', err));
   }, []);
@@ -90,83 +110,113 @@ export function DemographicsDashboard() {
     setMapLoaded(true);
   }, []);
 
-  // Load choropleth data once when map is ready
-  useEffect(() => {
+  // Load choropleth for current level
+  const loadChoropleth = useCallback(async () => {
     if (!mapRef.current || !mapLoaded) return;
     const map = mapRef.current;
 
-    const loadChoropleth = async () => {
-      if (map.getSource('demographics')) {
-        setSourceLoaded(true);
+    setIsLoadingChoropleth(true);
+
+    // Remove existing layers
+    try {
+      ['demographics-fill', 'demographics-line'].forEach(layerId => {
+        if (map.getLayer(layerId)) map.removeLayer(layerId);
+      });
+      if (map.getSource('demographics')) map.removeSource('demographics');
+    } catch (e) {
+      // Layers may not exist
+    }
+
+    try {
+      const data = await api.getDemographicsGeoJSON({
+        level: currentLevel,
+        parentId: parentId || undefined,
+      });
+
+      if (!data || !data.features || data.features.length === 0) {
+        console.error('No data for this level');
+        setIsLoadingChoropleth(false);
         return;
       }
 
-      setIsLoadingChoropleth(true);
+      map.addSource('demographics', {
+        type: 'geojson',
+        data: data as GeoJSON.FeatureCollection,
+      });
 
-      try {
-        const data = await api.getDemographicsGeoJSON({ level: 2 });
-
-        if (!data || !data.features) {
-          console.error('Invalid demographics data received');
-          setIsLoadingChoropleth(false);
-          return;
-        }
-
-        map.addSource('demographics', {
-          type: 'geojson',
-          data: data as GeoJSON.FeatureCollection,
-        });
-
-        const colorProperty = 'totalPopulation';
-        const scale = colorScales.population;
-        const colorExpr: any[] = ['interpolate', ['linear'], ['get', colorProperty]];
-        for (let i = 0; i < scale.stops.length; i++) {
-          colorExpr.push(scale.stops[i], scale.colors[i]);
-        }
-
-        map.addLayer({
-          id: 'demographics-fill',
-          type: 'fill',
-          source: 'demographics',
-          paint: {
-            'fill-color': colorExpr as any,
-            'fill-opacity': 0.8,
-          },
-        });
-
-        map.addLayer({
-          id: 'demographics-line',
-          type: 'line',
-          source: 'demographics',
-          paint: {
-            'line-color': '#333',
-            'line-width': 1,
-            'line-opacity': 0.7,
-          },
-        });
-
-        // Hover cursor
-        map.on('mouseenter', 'demographics-fill', () => {
-          map.getCanvas().style.cursor = 'pointer';
-        });
-        map.on('mouseleave', 'demographics-fill', () => {
-          map.getCanvas().style.cursor = '';
-        });
-
-        setSourceLoaded(true);
-        setIsLoadingChoropleth(false);
-      } catch (err) {
-        console.error('Failed to load demographics choropleth:', err);
-        setIsLoadingChoropleth(false);
+      // Build color expression for current metric
+      const colorProperty = metric === 'votingAgePercent' ? 'votingAgePercent' :
+                           metric === 'votingAge' ? 'votingAgePopulation' :
+                           metric === 'malePercent' ? 'malePercent' : 'totalPopulation';
+      const scale = colorScales[metric];
+      const colorExpr: any[] = ['interpolate', ['linear'], ['get', colorProperty]];
+      for (let i = 0; i < scale.stops.length; i++) {
+        colorExpr.push(scale.stops[i], scale.colors[i]);
       }
-    };
 
-    loadChoropleth();
-  }, [mapLoaded]);
+      map.addLayer({
+        id: 'demographics-fill',
+        type: 'fill',
+        source: 'demographics',
+        paint: {
+          'fill-color': colorExpr as any,
+          'fill-opacity': 0.8,
+        },
+      });
 
-  // Handle map clicks based on interaction mode
+      map.addLayer({
+        id: 'demographics-line',
+        type: 'line',
+        source: 'demographics',
+        paint: {
+          'line-color': '#333',
+          'line-width': 1,
+          'line-opacity': 0.7,
+        },
+      });
+
+      // Fit bounds to the data
+      const bounds = new maplibregl.LngLatBounds();
+      data.features.forEach((feature: any) => {
+        if (feature.geometry?.coordinates) {
+          const addCoords = (coords: any) => {
+            if (typeof coords[0] === 'number') {
+              bounds.extend(coords as [number, number]);
+            } else {
+              coords.forEach(addCoords);
+            }
+          };
+          addCoords(feature.geometry.coordinates);
+        }
+      });
+
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, { padding: 50, duration: 1000 });
+      }
+
+      // Hover cursor
+      map.on('mouseenter', 'demographics-fill', () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', 'demographics-fill', () => {
+        map.getCanvas().style.cursor = '';
+      });
+
+      setIsLoadingChoropleth(false);
+    } catch (err) {
+      console.error('Failed to load demographics choropleth:', err);
+      setIsLoadingChoropleth(false);
+    }
+  }, [mapLoaded, currentLevel, parentId, metric]);
+
+  // Load choropleth when level/parent changes
   useEffect(() => {
-    if (!mapRef.current || !sourceLoaded) return;
+    loadChoropleth();
+  }, [loadChoropleth]);
+
+  // Handle map clicks
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded) return;
     const map = mapRef.current;
 
     const handleClick = (e: maplibregl.MapLayerMouseEvent) => {
@@ -174,27 +224,41 @@ export function DemographicsDashboard() {
       const props = e.features[0].properties;
       if (!props) return;
 
-      const district = districts.find(d => d.districtId === props.id);
-      if (!district) return;
+      const unitStats: UnitStats = {
+        id: props.id,
+        name: props.name,
+        level: props.level || currentLevel,
+        totalPopulation: props.totalPopulation || 0,
+        malePopulation: props.malePopulation || 0,
+        femalePopulation: props.femalePopulation || 0,
+        votingAgePopulation: props.votingAgePopulation || 0,
+        youthPopulation: props.youthPopulation || 0,
+        elderlyPopulation: props.elderlyPopulation || 0,
+        numberOfHouseholds: props.numberOfHouseholds || 0,
+        parishCount: props.parishCount || 0,
+      };
 
       if (interactionMode === 'stats') {
-        if (isComparing && selectedDistrict) {
-          setCompareDistrict(district);
+        if (isComparing && selectedUnit) {
+          setCompareUnit(unitStats);
         } else {
-          setSelectedDistrict(district);
-          setSidebarOpen(true); // Open sidebar to show stats
+          setSelectedUnit(unitStats);
+          setSidebarOpen(true);
         }
       } else {
-        // Drill-down mode - show popup for now (future: drill to constituencies)
-        new maplibregl.Popup()
-          .setLngLat(e.lngLat)
-          .setHTML(`
-            <div style="padding: 8px; color: #000;">
-              <h3 style="font-weight: bold; margin-bottom: 4px;">${props.name}</h3>
-              <p style="margin: 0; font-size: 12px; color: #666;">Click to drill down (coming soon)</p>
-            </div>
-          `)
-          .addTo(map);
+        // Drill-down mode
+        if (currentLevel < 5) { // Can drill down until parish level
+          // Add to breadcrumbs
+          setBreadcrumbs(prev => [...prev, {
+            id: props.id,
+            name: props.name,
+            level: currentLevel,
+          }]);
+          setParentId(props.id);
+          setCurrentLevel(currentLevel + 1);
+          setSelectedUnit(null);
+          setCompareUnit(null);
+        }
       }
     };
 
@@ -202,11 +266,11 @@ export function DemographicsDashboard() {
     return () => {
       map.off('click', 'demographics-fill', handleClick);
     };
-  }, [sourceLoaded, districts, interactionMode, isComparing, selectedDistrict]);
+  }, [mapLoaded, interactionMode, isComparing, selectedUnit, currentLevel]);
 
-  // Update fill color when metric changes
+  // Update colors when metric changes (without reloading data)
   useEffect(() => {
-    if (!mapRef.current || !sourceLoaded) return;
+    if (!mapRef.current || !mapLoaded) return;
     const map = mapRef.current;
 
     try {
@@ -215,7 +279,6 @@ export function DemographicsDashboard() {
       const colorProperty = metric === 'votingAgePercent' ? 'votingAgePercent' :
                            metric === 'votingAge' ? 'votingAgePopulation' :
                            metric === 'malePercent' ? 'malePercent' : 'totalPopulation';
-
       const scale = colorScales[metric];
       const colorExpr: any[] = ['interpolate', ['linear'], ['get', colorProperty]];
       for (let i = 0; i < scale.stops.length; i++) {
@@ -224,26 +287,61 @@ export function DemographicsDashboard() {
 
       map.setPaintProperty('demographics-fill', 'fill-color', colorExpr);
     } catch (err) {
-      console.error('Failed to update metric:', err);
+      // Layer might not exist yet
     }
-  }, [metric, sourceLoaded]);
+  }, [metric, mapLoaded]);
+
+  // Navigation functions
+  const goBack = () => {
+    if (breadcrumbs.length > 0) {
+      const newBreadcrumbs = [...breadcrumbs];
+      newBreadcrumbs.pop();
+      setBreadcrumbs(newBreadcrumbs);
+
+      if (newBreadcrumbs.length === 0) {
+        setParentId(null);
+        setCurrentLevel(2);
+      } else {
+        const lastCrumb = newBreadcrumbs[newBreadcrumbs.length - 1];
+        setParentId(lastCrumb.id);
+        setCurrentLevel(lastCrumb.level + 1);
+      }
+      setSelectedUnit(null);
+      setCompareUnit(null);
+    }
+  };
+
+  const goToLevel = (index: number) => {
+    if (index === -1) {
+      // Go to national (district) level
+      setBreadcrumbs([]);
+      setParentId(null);
+      setCurrentLevel(2);
+    } else {
+      const newBreadcrumbs = breadcrumbs.slice(0, index + 1);
+      setBreadcrumbs(newBreadcrumbs);
+      const crumb = newBreadcrumbs[newBreadcrumbs.length - 1];
+      setParentId(crumb.id);
+      setCurrentLevel(crumb.level + 1);
+    }
+    setSelectedUnit(null);
+    setCompareUnit(null);
+  };
 
   const formatNumber = (n: number) => n.toLocaleString();
-  const formatPercent = (n: number, total: number) => ((n / total) * 100).toFixed(1) + '%';
+  const formatPercent = (n: number, total: number) => total > 0 ? ((n / total) * 100).toFixed(1) + '%' : '0%';
   const scale = colorScales[metric];
 
-  // Clear selection
   const clearSelection = () => {
-    setSelectedDistrict(null);
-    setCompareDistrict(null);
+    setSelectedUnit(null);
+    setCompareUnit(null);
     setIsComparing(false);
   };
 
-  // Start comparison
   const startComparison = () => {
-    if (selectedDistrict) {
+    if (selectedUnit) {
       setIsComparing(true);
-      setCompareDistrict(null);
+      setCompareUnit(null);
     }
   };
 
@@ -275,19 +373,18 @@ export function DemographicsDashboard() {
             </div>
 
             {/* Context-specific content */}
-            {selectedDistrict ? (
-              // District Stats View
+            {selectedUnit ? (
+              // Unit Stats View
               <div className="flex-1 overflow-y-auto">
                 <div className="p-4 border-b border-gray-700">
                   <div className="flex justify-between items-start mb-3">
                     <div>
-                      <h2 className="text-lg font-bold text-white">{selectedDistrict.districtName}</h2>
-                      <p className="text-xs text-gray-400">District Statistics</p>
+                      <h2 className="text-lg font-bold text-white">{selectedUnit.name}</h2>
+                      <p className="text-xs text-gray-400">{LEVEL_NAMES[selectedUnit.level]} Statistics</p>
                     </div>
                     <button
                       onClick={clearSelection}
                       className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
-                      title="Back to national"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -295,77 +392,75 @@ export function DemographicsDashboard() {
                     </button>
                   </div>
 
-                  {/* District Stats Grid */}
                   <div className="grid grid-cols-2 gap-2">
-                    <StatCard label="Population" value={formatNumber(selectedDistrict.totalPopulation)} />
-                    <StatCard label="Voting Age" value={formatNumber(selectedDistrict.votingAgePopulation)} color="text-green-400" />
-                    <StatCard label="Youth (0-17)" value={formatNumber(selectedDistrict.youthPopulation)} color="text-blue-400" />
-                    <StatCard label="Elderly (60+)" value={formatNumber(selectedDistrict.elderlyPopulation)} color="text-orange-400" />
-                    <StatCard label="Households" value={formatNumber(selectedDistrict.numberOfHouseholds)} color="text-purple-400" />
-                    <StatCard label="Parishes" value={selectedDistrict.parishCount.toString()} />
+                    <StatCard label="Population" value={formatNumber(selectedUnit.totalPopulation)} />
+                    <StatCard label="Voting Age" value={formatNumber(selectedUnit.votingAgePopulation)} color="text-green-400" />
+                    <StatCard label="Youth (0-17)" value={formatNumber(selectedUnit.youthPopulation)} color="text-blue-400" />
+                    <StatCard label="Elderly (60+)" value={formatNumber(selectedUnit.elderlyPopulation)} color="text-orange-400" />
+                    <StatCard label="Households" value={formatNumber(selectedUnit.numberOfHouseholds)} color="text-purple-400" />
+                    {selectedUnit.level < 5 && (
+                      <StatCard label="Parishes" value={selectedUnit.parishCount.toString()} />
+                    )}
                   </div>
 
-                  {/* Gender & Voting */}
                   <div className="mt-3 pt-3 border-t border-gray-700 space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-400">Gender Split</span>
                       <span className="text-white">
-                        {formatPercent(selectedDistrict.malePopulation, selectedDistrict.totalPopulation)} M / {formatPercent(selectedDistrict.femalePopulation, selectedDistrict.totalPopulation)} F
+                        {formatPercent(selectedUnit.malePopulation, selectedUnit.totalPopulation)} M / {formatPercent(selectedUnit.femalePopulation, selectedUnit.totalPopulation)} F
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-400">Voting Age %</span>
                       <span className="text-green-400 font-medium">
-                        {formatPercent(selectedDistrict.votingAgePopulation, selectedDistrict.totalPopulation)}
+                        {formatPercent(selectedUnit.votingAgePopulation, selectedUnit.totalPopulation)}
                       </span>
                     </div>
                   </div>
 
-                  {/* Compare Button */}
                   {!isComparing && (
                     <button
                       onClick={startComparison}
                       className="mt-4 w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition-colors"
                     >
-                      Compare with another district
+                      Compare with another {LEVEL_NAMES[currentLevel].toLowerCase()}
                     </button>
                   )}
                 </div>
 
-                {/* Comparison Panel */}
                 {isComparing && (
                   <div className="p-4 border-b border-gray-700 bg-gray-750">
                     <div className="flex justify-between items-center mb-3">
                       <h3 className="text-sm font-semibold text-white">Comparison Mode</h3>
                       <button
-                        onClick={() => { setIsComparing(false); setCompareDistrict(null); }}
+                        onClick={() => { setIsComparing(false); setCompareUnit(null); }}
                         className="text-xs text-gray-400 hover:text-white"
                       >
                         Cancel
                       </button>
                     </div>
 
-                    {compareDistrict ? (
+                    {compareUnit ? (
                       <div className="space-y-2">
                         <div className="text-sm text-gray-400 mb-2">
-                          <span className="text-blue-400">{selectedDistrict.districtName}</span>
+                          <span className="text-blue-400">{selectedUnit.name}</span>
                           {' vs '}
-                          <span className="text-green-400">{compareDistrict.districtName}</span>
+                          <span className="text-green-400">{compareUnit.name}</span>
                         </div>
-                        <CompareTable a={selectedDistrict} b={compareDistrict} />
+                        <CompareTable a={selectedUnit} b={compareUnit} />
                       </div>
                     ) : (
                       <p className="text-sm text-gray-400">
-                        Click on another district to compare
+                        Click on another {LEVEL_NAMES[currentLevel].toLowerCase()} to compare
                       </p>
                     )}
                   </div>
                 )}
               </div>
             ) : (
-              // National Stats View
+              // National/Current Level Stats View
               <>
-                {nationalStats && (
+                {nationalStats && breadcrumbs.length === 0 && (
                   <div className="p-4 border-b border-gray-700">
                     <h2 className="text-sm font-semibold text-gray-300 mb-3">National Totals</h2>
                     <div className="grid grid-cols-2 gap-2">
@@ -380,7 +475,17 @@ export function DemographicsDashboard() {
                   </div>
                 )}
 
-                {/* Metric Selector */}
+                {breadcrumbs.length > 0 && (
+                  <div className="p-4 border-b border-gray-700">
+                    <h2 className="text-sm font-semibold text-gray-300 mb-2">
+                      Viewing: {LEVEL_NAMES[currentLevel]}s
+                    </h2>
+                    <p className="text-xs text-gray-400">
+                      in {breadcrumbs[breadcrumbs.length - 1].name}
+                    </p>
+                  </div>
+                )}
+
                 <div className="p-4 border-b border-gray-700">
                   <label className="text-xs text-gray-400 block mb-2">Display Metric</label>
                   <select
@@ -393,7 +498,6 @@ export function DemographicsDashboard() {
                     ))}
                   </select>
 
-                  {/* Legend */}
                   <div className="mt-3">
                     <div className="flex h-2 rounded overflow-hidden">
                       {scale.colors.map((color, i) => (
@@ -407,10 +511,11 @@ export function DemographicsDashboard() {
                   </div>
                 </div>
 
-                {/* District count info */}
                 <div className="p-4 text-sm text-gray-400">
-                  <p>{districts.length} districts loaded</p>
-                  <p className="text-xs mt-1">Click on a district to view details</p>
+                  <p>Showing: {LEVEL_NAMES[currentLevel]}s</p>
+                  <p className="text-xs mt-1">
+                    {interactionMode === 'stats' ? 'Click to view statistics' : 'Click to drill down'}
+                  </p>
                 </div>
               </>
             )}
@@ -423,12 +528,10 @@ export function DemographicsDashboard() {
         {/* Toolbar */}
         <div className="bg-gray-800 border-b border-gray-700 px-4 py-2 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {/* Sidebar Toggle */}
             {!sidebarOpen && (
               <button
                 onClick={() => setSidebarOpen(true)}
                 className="p-2 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
-                title="Open sidebar"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -436,14 +539,48 @@ export function DemographicsDashboard() {
               </button>
             )}
 
+            {/* Back button */}
+            {breadcrumbs.length > 0 && (
+              <button
+                onClick={goBack}
+                className="p-2 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+                title="Go back"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
+
+            {/* Breadcrumbs */}
+            <div className="flex items-center gap-1 text-sm">
+              <button
+                onClick={() => goToLevel(-1)}
+                className={`px-2 py-1 rounded ${breadcrumbs.length === 0 ? 'text-white font-medium' : 'text-gray-400 hover:text-white'}`}
+              >
+                Uganda
+              </button>
+              {breadcrumbs.map((crumb, index) => (
+                <span key={crumb.id} className="flex items-center">
+                  <span className="text-gray-600 mx-1">›</span>
+                  <button
+                    onClick={() => goToLevel(index)}
+                    className={`px-2 py-1 rounded ${
+                      index === breadcrumbs.length - 1 ? 'text-white font-medium' : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {crumb.name}
+                  </button>
+                </span>
+              ))}
+            </div>
+
             {/* Interaction Mode Toggle */}
-            <div className="flex bg-gray-700 rounded-lg p-0.5">
+            <div className="flex bg-gray-700 rounded-lg p-0.5 ml-4">
               <button
                 onClick={() => setInteractionMode('stats')}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  interactionMode === 'stats'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-400 hover:text-white'
+                  interactionMode === 'stats' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
                 View Stats
@@ -451,16 +588,13 @@ export function DemographicsDashboard() {
               <button
                 onClick={() => setInteractionMode('drilldown')}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  interactionMode === 'drilldown'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-400 hover:text-white'
+                  interactionMode === 'drilldown' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
                 Drill Down
               </button>
             </div>
 
-            {/* Metric selector (compact) when sidebar closed */}
             {!sidebarOpen && (
               <select
                 value={metric}
@@ -475,13 +609,9 @@ export function DemographicsDashboard() {
           </div>
 
           <div className="flex items-center gap-3">
-            {selectedDistrict && (
-              <span className="text-sm text-gray-400">
-                Selected: <span className="text-white">{selectedDistrict.districtName}</span>
-              </span>
-            )}
-            <span className="text-xs text-gray-500">
-              {interactionMode === 'stats' ? 'Click to view statistics' : 'Click to drill down'}
+            <span className="text-sm text-gray-400">
+              {LEVEL_NAMES[currentLevel]}s
+              {currentLevel === 5 && ' (lowest level)'}
             </span>
           </div>
         </div>
@@ -490,17 +620,15 @@ export function DemographicsDashboard() {
         <div className="flex-1 relative">
           <Map onLoad={handleMapLoad} className="absolute inset-0" />
 
-          {/* Loading Indicator */}
           {isLoadingChoropleth && (
             <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
               <div className="bg-gray-800/90 backdrop-blur-sm rounded-lg px-6 py-3 flex items-center gap-3 shadow-lg border border-gray-700">
                 <div className="w-5 h-5 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-white">Loading demographic data...</span>
+                <span className="text-white">Loading {LEVEL_NAMES[currentLevel].toLowerCase()} data...</span>
               </div>
             </div>
           )}
 
-          {/* Legend (when sidebar closed) */}
           {!sidebarOpen && (
             <div className="absolute bottom-4 left-4 bg-gray-800/90 backdrop-blur-sm rounded-lg p-3 z-10 border border-gray-700">
               <div className="text-xs text-gray-400 mb-1">{metricLabels[metric]}</div>
@@ -521,7 +649,6 @@ export function DemographicsDashboard() {
   );
 }
 
-// Helper components
 function StatCard({ label, value, color = 'text-white' }: { label: string; value: string; color?: string }) {
   return (
     <div className="bg-gray-700/50 rounded p-2">
@@ -531,9 +658,9 @@ function StatCard({ label, value, color = 'text-white' }: { label: string; value
   );
 }
 
-function CompareTable({ a, b }: { a: DistrictStats; b: DistrictStats }) {
+function CompareTable({ a, b }: { a: UnitStats; b: UnitStats }) {
   const formatNum = (n: number) => n.toLocaleString();
-  const formatPct = (n: number, t: number) => ((n / t) * 100).toFixed(1) + '%';
+  const formatPct = (n: number, t: number) => t > 0 ? ((n / t) * 100).toFixed(1) + '%' : '0%';
 
   const rows = [
     { label: 'Population', aVal: a.totalPopulation, bVal: b.totalPopulation },

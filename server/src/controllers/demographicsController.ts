@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -200,6 +200,7 @@ export async function getDemographicsGeoJSON(req: Request, res: Response) {
     const level = parseInt(req.query.level as string) || 2; // Default to district level
     const censusYear = parseInt(req.query.censusYear as string) || DEFAULT_CENSUS_YEAR;
     const metric = (req.query.metric as string) || 'population'; // population, votingAge, density
+    const parentId = req.query.parentId ? parseInt(req.query.parentId as string) : null;
 
     // Get admin units at the specified level with demographics
     const unitsWithDemographics = await prisma.$queryRaw<Array<{
@@ -267,6 +268,7 @@ export async function getDemographicsGeoJSON(req: Request, res: Response) {
       LEFT JOIN unit_demographics ud ON au.id = ud.unit_id
       WHERE au.level = ${level}
         AND au.geometry IS NOT NULL
+        ${parentId ? Prisma.sql`AND au.parent_id = ${parentId}` : Prisma.empty}
     `;
 
     /**

@@ -694,11 +694,13 @@ export const api = {
 
   getDemographicsGeoJSON: (params?: {
     level?: number;
+    parentId?: number;
     censusYear?: number;
     metric?: 'population' | 'votingAge' | 'density';
   }) => {
     const searchParams = new URLSearchParams();
     if (params?.level) searchParams.append('level', params.level.toString());
+    if (params?.parentId) searchParams.append('parentId', params.parentId.toString());
     if (params?.censusYear) searchParams.append('censusYear', params.censusYear.toString());
     if (params?.metric) searchParams.append('metric', params.metric);
     const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
