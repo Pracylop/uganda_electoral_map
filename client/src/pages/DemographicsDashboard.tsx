@@ -126,20 +126,33 @@ export function DemographicsDashboard() {
 
   // Pre-load ALL child data - triggered after initial district data is cached
   const preloadStarted = useRef(false);
+  const [preloadProgress, setPreloadProgress] = useState({ current: 0, total: 0, complete: false });
 
   const preloadAllConstituencies = useCallback(async (districtFeatures: GeoJSON.Feature[]) => {
     if (preloadStarted.current) return;
     preloadStarted.current = true;
 
-    console.log(`Demographics: Pre-loading constituencies for ${districtFeatures.length} districts...`);
+    const total = districtFeatures.length;
+    setPreloadProgress({ current: 0, total, complete: false });
+    console.log(`Demographics: Pre-loading constituencies for ${total} districts...`);
 
-    // Fetch ALL constituency data in parallel
+    let completed = 0;
+
+    // Fetch ALL constituency data in parallel with progress tracking
     const promises = districtFeatures.map(async (feature) => {
       const unitId = feature.properties?.id;
-      if (!unitId) return;
+      if (!unitId) {
+        completed++;
+        setPreloadProgress(prev => ({ ...prev, current: completed }));
+        return;
+      }
 
       const cacheKey = getCacheKey(3, unitId);
-      if (dataCache.current.has(cacheKey)) return;
+      if (dataCache.current.has(cacheKey)) {
+        completed++;
+        setPreloadProgress(prev => ({ ...prev, current: completed }));
+        return;
+      }
 
       try {
         const data = await api.getDemographicsGeoJSON({ level: 3, parentId: unitId });
@@ -163,9 +176,12 @@ export function DemographicsDashboard() {
       } catch (err) {
         // Silent fail
       }
+      completed++;
+      setPreloadProgress(prev => ({ ...prev, current: completed }));
     });
 
     await Promise.all(promises);
+    setPreloadProgress({ current: total, total, complete: true });
     console.log(`Demographics: Pre-load complete! ${dataCache.current.size} total items cached.`);
   }, []);
 
@@ -722,6 +738,36 @@ export function DemographicsDashboard() {
               <div className="bg-gray-800/90 backdrop-blur-sm rounded-lg px-6 py-3 flex items-center gap-3 shadow-lg border border-gray-700">
                 <div className="w-5 h-5 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
                 <span className="text-white">Loading {LEVEL_NAMES[currentLevel].toLowerCase()} data...</span>
+              </div>
+            </div>
+          )}
+
+          {/* Pre-load progress indicator */}
+          {preloadProgress.total > 0 && !preloadProgress.complete && (
+            <div className="absolute top-4 right-4 z-20">
+              <div className="bg-gray-800/95 backdrop-blur-sm rounded-lg px-4 py-3 shadow-lg border border-gray-700 min-w-48">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-sm text-white font-medium">Caching data...</span>
+                </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div
+                    className="bg-green-500 h-2 rounded-full transition-all duration-150"
+                    style={{ width: `${(preloadProgress.current / preloadProgress.total) * 100}%` }}
+                  />
+                </div>
+                <div className="text-xs text-gray-400 mt-1 text-right">
+                  {preloadProgress.current} / {preloadProgress.total} districts
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Ready indicator - brief flash when preload completes */}
+          {preloadProgress.complete && preloadProgress.total > 0 && (
+            <div className="absolute top-4 right-4 z-20 animate-pulse">
+              <div className="bg-green-600/90 backdrop-blur-sm rounded-lg px-4 py-2 shadow-lg border border-green-500">
+                <span className="text-sm text-white font-medium">✓ Ready for instant navigation</span>
               </div>
             </div>
           )}
