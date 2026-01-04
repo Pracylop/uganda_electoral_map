@@ -124,6 +124,51 @@ export function DemographicsDashboard() {
     setMapLoaded(true);
   }, []);
 
+  // Pre-load ALL child data - triggered after initial district data is cached
+  const preloadStarted = useRef(false);
+
+  const preloadAllConstituencies = useCallback(async (districtFeatures: GeoJSON.Feature[]) => {
+    if (preloadStarted.current) return;
+    preloadStarted.current = true;
+
+    console.log(`Demographics: Pre-loading constituencies for ${districtFeatures.length} districts...`);
+
+    // Fetch ALL constituency data in parallel
+    const promises = districtFeatures.map(async (feature) => {
+      const unitId = feature.properties?.id;
+      if (!unitId) return;
+
+      const cacheKey = getCacheKey(3, unitId);
+      if (dataCache.current.has(cacheKey)) return;
+
+      try {
+        const data = await api.getDemographicsGeoJSON({ level: 3, parentId: unitId });
+        if (data?.features?.length > 0) {
+          const geojson = data as GeoJSON.FeatureCollection;
+          const bounds = new maplibregl.LngLatBounds();
+          data.features.forEach((f: any) => {
+            if (f.geometry?.coordinates) {
+              const addCoords = (coords: any) => {
+                if (typeof coords[0] === 'number') bounds.extend(coords as [number, number]);
+                else coords.forEach(addCoords);
+              };
+              addCoords(f.geometry.coordinates);
+            }
+          });
+          const bbox: [number, number, number, number] | undefined = !bounds.isEmpty()
+            ? [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
+            : undefined;
+          dataCache.current.set(cacheKey, { geojson, bbox });
+        }
+      } catch (err) {
+        // Silent fail
+      }
+    });
+
+    await Promise.all(promises);
+    console.log(`Demographics: Pre-load complete! ${dataCache.current.size} total items cached.`);
+  }, []);
+
   // Load choropleth for current level (with caching)
   const loadChoropleth = useCallback(async () => {
     if (!mapRef.current || !mapLoaded) return;
@@ -255,83 +300,11 @@ export function DemographicsDashboard() {
 
     setIsLoadingChoropleth(false);
 
-    // Pre-fetch child level data in the background for instant drill-down
-    if (currentLevel < 5) {
-      prefetchChildData(geojson.features, currentLevel + 1);
+    // Trigger pre-load of all constituency data after initial district load
+    if (currentLevel === 2 && parentId === null) {
+      preloadAllConstituencies(geojson.features);
     }
-  }, [mapLoaded, currentLevel, parentId, metric]);
-
-  // Pre-fetch child data for all visible units (background, no loading indicator)
-  const prefetchChildData = useCallback(async (
-    features: GeoJSON.Feature[],
-    childLevel: number
-  ) => {
-    console.log(`Demographics: Pre-fetching level ${childLevel} data for ${features.length} units`);
-
-    // Process in small batches to avoid overwhelming the server
-    const BATCH_SIZE = 10;
-    const BATCH_DELAY = 100; // ms between batches
-
-    for (let i = 0; i < features.length; i += BATCH_SIZE) {
-      const batch = features.slice(i, i + BATCH_SIZE);
-
-      // Fetch batch in parallel
-      await Promise.all(batch.map(async (feature) => {
-        const unitId = feature.properties?.id;
-        if (!unitId) return;
-
-        const cacheKey = getCacheKey(childLevel, unitId);
-
-        // Skip if already cached
-        if (dataCache.current.has(cacheKey)) {
-          return;
-        }
-
-        try {
-          const data = await api.getDemographicsGeoJSON({
-            level: childLevel,
-            parentId: unitId,
-          });
-
-          if (data && data.features && data.features.length > 0) {
-            const geojson = data as GeoJSON.FeatureCollection;
-
-            // Calculate bbox
-            const bounds = new maplibregl.LngLatBounds();
-            data.features.forEach((f: any) => {
-              if (f.geometry?.coordinates) {
-                const addCoords = (coords: any) => {
-                  if (typeof coords[0] === 'number') {
-                    bounds.extend(coords as [number, number]);
-                  } else {
-                    coords.forEach(addCoords);
-                  }
-                };
-                addCoords(f.geometry.coordinates);
-              }
-            });
-
-            const bbox: [number, number, number, number] | undefined = !bounds.isEmpty()
-              ? [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
-              : undefined;
-
-            dataCache.current.set(cacheKey, { geojson, bbox });
-            console.log(`Demographics: Pre-cached ${cacheKey} (${geojson.features.length} features)`);
-          }
-        } catch (err) {
-          // Silent fail for pre-fetch - will be fetched on demand if needed
-          console.warn(`Demographics: Pre-fetch failed for ${cacheKey}`);
-        }
-      }));
-
-      // Small delay between batches
-      if (i + BATCH_SIZE < features.length) {
-        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
-      }
-    }
-
-    console.log(`Demographics: Pre-fetch complete for level ${childLevel}`);
-  }, []);
+  }, [mapLoaded, currentLevel, parentId, metric, preloadAllConstituencies]);
 
   // Load choropleth when level/parent changes
   useEffect(() => {
