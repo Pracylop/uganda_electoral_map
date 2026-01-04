@@ -95,15 +95,16 @@ export function DemographicsDashboard() {
       try {
         const data = await api.getDemographicsGeoJSON({ level: 2 });
 
-        // Remove existing layers
-        try {
-          if (map.getLayer('demographics-fill')) map.removeLayer('demographics-fill');
-          if (map.getLayer('demographics-line')) map.removeLayer('demographics-line');
-          if (map.getLayer('demographics-hover')) map.removeLayer('demographics-hover');
-          if (map.getSource('demographics')) map.removeSource('demographics');
-        } catch (e) {
-          // Layers may not exist
+        if (!data || !data.features) {
+          console.error('Invalid demographics data received');
+          return;
         }
+
+        // Remove existing layers
+        if (map.getLayer('demographics-fill')) map.removeLayer('demographics-fill');
+        if (map.getLayer('demographics-line')) map.removeLayer('demographics-line');
+        if (map.getLayer('demographics-hover')) map.removeLayer('demographics-hover');
+        if (map.getSource('demographics')) map.removeSource('demographics');
 
         // Add source
         map.addSource('demographics', {
@@ -172,7 +173,7 @@ export function DemographicsDashboard() {
         });
 
       } catch (err) {
-        console.error('Failed to load choropleth:', err);
+        console.error('Failed to load demographics choropleth:', err);
       }
     };
 

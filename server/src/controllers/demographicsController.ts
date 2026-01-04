@@ -269,11 +269,65 @@ export async function getDemographicsGeoJSON(req: Request, res: Response) {
         AND au.geometry IS NOT NULL
     `;
 
+    /**
+     * Clean geometry by removing empty coordinate arrays at any depth.
+     * This fixes issues where MultiPolygon geometries have empty rings.
+     */
+    const cleanGeometry = (geom: any): any => {
+      if (!geom || !geom.type || !geom.coordinates) return null;
+
+      if (geom.type === 'MultiPolygon') {
+        // MultiPolygon: [ Polygon1, Polygon2, ... ]
+        // Each Polygon: [ Ring1, Ring2, ... ] where Ring = [[lon,lat], ...]
+        const cleanedPolygons = geom.coordinates
+          .filter((polygon: any) => {
+            // Filter out null/undefined polygons
+            if (!Array.isArray(polygon)) return false;
+            // Filter out empty polygons
+            if (polygon.length === 0) return false;
+            // Check if outer ring has coordinates
+            const outerRing = polygon[0];
+            if (!Array.isArray(outerRing) || outerRing.length === 0) return false;
+            // Check if first coordinate is valid [lon, lat]
+            if (!Array.isArray(outerRing[0]) || outerRing[0].length < 2) return false;
+            return true;
+          })
+          .map((polygon: any) => {
+            // For each polygon, filter out empty rings
+            return polygon.filter((ring: any) => {
+              if (!Array.isArray(ring) || ring.length === 0) return false;
+              if (!Array.isArray(ring[0]) || ring[0].length < 2) return false;
+              return true;
+            });
+          })
+          .filter((polygon: any) => polygon.length > 0); // Remove polygons with no valid rings
+
+        if (cleanedPolygons.length === 0) return null;
+        return { type: 'MultiPolygon', coordinates: cleanedPolygons };
+      }
+
+      if (geom.type === 'Polygon') {
+        // Polygon: [ Ring1, Ring2, ... ]
+        const cleanedRings = geom.coordinates.filter((ring: any) => {
+          if (!Array.isArray(ring) || ring.length === 0) return false;
+          if (!Array.isArray(ring[0]) || ring[0].length < 2) return false;
+          return true;
+        });
+        if (cleanedRings.length === 0) return null;
+        return { type: 'Polygon', coordinates: cleanedRings };
+      }
+
+      // For other geometry types, just validate basic structure
+      if (!Array.isArray(geom.coordinates) || geom.coordinates.length === 0) return null;
+      return geom;
+    };
+
     // Build GeoJSON
     const features = unitsWithDemographics.map(unit => {
       let geometry = null;
       try {
-        geometry = unit.geometry ? JSON.parse(unit.geometry) : null;
+        const parsed = unit.geometry ? JSON.parse(unit.geometry) : null;
+        geometry = cleanGeometry(parsed);
       } catch (e) {
         // Invalid geometry
       }
@@ -305,15 +359,16 @@ export async function getDemographicsGeoJSON(req: Request, res: Response) {
       };
     }).filter(f => f.geometry !== null);
 
+    // Return standard GeoJSON (no properties at FeatureCollection level)
     res.json({
       type: 'FeatureCollection',
-      properties: {
+      features,
+      metadata: {
         censusYear,
         level,
         metric,
         featureCount: features.length,
       },
-      features,
     });
   } catch (error) {
     console.error('Error fetching demographics GeoJSON:', error);
