@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
-import Map from '../components/Map';
+import MapComponent from '../components/Map';
 import { api } from '../lib/api';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -665,7 +665,7 @@ export function DemographicsDashboard() {
 
         {/* Map */}
         <div className="flex-1 relative">
-          <Map onLoad={handleMapLoad} className="absolute inset-0" />
+          <MapComponent onLoad={handleMapLoad} className="absolute inset-0" />
 
           {isLoadingChoropleth && (
             <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
