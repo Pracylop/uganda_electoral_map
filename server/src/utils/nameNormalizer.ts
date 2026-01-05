@@ -111,6 +111,9 @@ export function normalizeName(name: string): string {
   // Uppercase and trim
   let normalized = name.toUpperCase().trim();
 
+  // Normalize underscores to hyphens (CSV often uses underscores)
+  normalized = normalized.replace(/_/g, '-');
+
   // Remove extra whitespace
   normalized = normalized.replace(/\s+/g, ' ');
 
