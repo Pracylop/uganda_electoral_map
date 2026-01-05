@@ -7,6 +7,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import { normalizeName, createLookupKey, getAlternativeLookupKeys } from '../utils/nameNormalizer';
 
 const prisma = new PrismaClient();
 
@@ -213,11 +214,11 @@ async function importElectionAtConstituency(
 
   const constituencyMap: Map<string, number> = new Map();
   for (const c of constituencies) {
-    // Map by constituency name alone
-    constituencyMap.set(c.name.toUpperCase(), c.id);
-    // Also map with district prefix for disambiguation
+    // Map by normalized constituency name alone
+    constituencyMap.set(normalizeName(c.name), c.id);
+    // Also map with normalized district prefix for disambiguation
     if (c.parent) {
-      const key = `${c.parent.name.toUpperCase()}-${c.name.toUpperCase()}`;
+      const key = createLookupKey(c.parent.name, c.name);
       constituencyMap.set(key, c.id);
     }
   }
@@ -230,13 +231,21 @@ async function importElectionAtConstituency(
   let notFound = 0;
 
   for (const row of rows) {
-    const districtName = row['District.Name']?.toUpperCase() || '';
-    const constituencyName = row['Constituency.Name']?.toUpperCase() || '';
+    const districtName = row['District.Name'] || '';
+    const constituencyName = row['Constituency.Name'] || '';
 
-    // Try with district prefix first, then just constituency name
-    let constituencyId = constituencyMap.get(`${districtName}-${constituencyName}`);
+    // Try with normalized district prefix first, then just constituency name
+    let constituencyId = constituencyMap.get(createLookupKey(districtName, constituencyName));
     if (!constituencyId) {
-      constituencyId = constituencyMap.get(constituencyName);
+      constituencyId = constituencyMap.get(normalizeName(constituencyName));
+    }
+    // Try alternative keys (parent districts for newer districts)
+    if (!constituencyId) {
+      const altKeys = getAlternativeLookupKeys(districtName, constituencyName);
+      for (const altKey of altKeys) {
+        constituencyId = constituencyMap.get(altKey);
+        if (constituencyId) break;
+      }
     }
 
     if (!constituencyId) {
@@ -426,13 +435,13 @@ async function importElection(
     },
   });
 
-  // Create lookup key: District-Constituency-Subcounty-Parish
+  // Create lookup key: District-Constituency-Subcounty-Parish (normalized)
   const parishMap: Map<string, number> = new Map();
   for (const parish of parishes) {
     const subcounty = parish.parent?.name || '';
     const constituency = parish.parent?.parent?.name || '';
     const district = parish.parent?.parent?.parent?.name || '';
-    const key = `${district.toUpperCase()}-${constituency.toUpperCase()}-${subcounty.toUpperCase()}-${parish.name.toUpperCase()}`;
+    const key = createLookupKey(district, constituency, subcounty, parish.name);
     parishMap.set(key, parish.id);
   }
   console.log(`  Built lookup for ${parishMap.size} parishes`);
@@ -444,13 +453,23 @@ async function importElection(
   let notFound = 0;
 
   for (const row of rows) {
-    const districtName = row['District.Name']?.toUpperCase() || '';
-    const constituencyName = row['Constituency.Name']?.toUpperCase() || '';
-    const subcountyName = row['SubCounty.Name']?.toUpperCase() || '';
-    const parishName = row['Parish.Name']?.toUpperCase() || '';
+    const districtName = row['District.Name'] || '';
+    const constituencyName = row['Constituency.Name'] || '';
+    const subcountyName = row['SubCounty.Name'] || '';
+    const parishName = row['Parish.Name'] || '';
 
-    const key = `${districtName}-${constituencyName}-${subcountyName}-${parishName}`;
-    const parishId = parishMap.get(key);
+    // Try normalized key first
+    const key = createLookupKey(districtName, constituencyName, subcountyName, parishName);
+    let parishId = parishMap.get(key);
+
+    // Try alternative keys (parent districts for newer districts)
+    if (!parishId) {
+      const altKeys = getAlternativeLookupKeys(districtName, constituencyName, subcountyName, parishName);
+      for (const altKey of altKeys) {
+        parishId = parishMap.get(altKey);
+        if (parishId) break;
+      }
+    }
 
     if (!parishId) {
       notFound++;
