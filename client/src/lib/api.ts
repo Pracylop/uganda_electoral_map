@@ -538,12 +538,16 @@ export const api = {
   },
 
   getIssuesChoropleth: (params?: {
+    level?: number;
+    parentId?: number;
     categoryIds?: number[];
     startDate?: string;
     endDate?: string;
     severity?: number;
   }) => {
     const searchParams = new URLSearchParams();
+    if (params?.level) searchParams.append('level', params.level.toString());
+    if (params?.parentId) searchParams.append('parentId', params.parentId.toString());
     if (params?.categoryIds && params.categoryIds.length > 0) {
       searchParams.append('categoryIds', params.categoryIds.join(','));
     }
@@ -561,16 +565,25 @@ export const api = {
           unitId: number;
           unitName: string;
           unitCode: string;
+          level: number;
+          parentId: number | null;
           issueCount: number;
           lastIssueDate: string | null;
+          injuries: number;
+          deaths: number;
+          arrests: number;
+          totalCasualties: number;
+          topCategories: string;
           fillColor: string;
           intensity: number;
         };
       }>;
       metadata: {
         totalIssues: number;
-        districtsWithIssues: number;
-        maxIssuesPerDistrict: number;
+        unitsWithIssues: number;
+        maxIssuesPerUnit: number;
+        level: number;
+        parentId: number | null;
       };
     }>(`/api/issues/choropleth${query}`);
   },

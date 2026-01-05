@@ -12,6 +12,7 @@ import { ApprovalQueue } from './pages/ApprovalQueue';
 import { MapDashboard } from './pages/MapDashboard';
 import { DemographicsDashboard } from './pages/DemographicsDashboard';
 import { IssuesDashboard } from './pages/IssuesDashboard';
+import { IssuesStats } from './pages/IssuesStats';
 import { BroadcastApp } from './pages/BroadcastApp';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
@@ -138,6 +139,16 @@ function App() {
             <ProtectedRoute>
               <Layout>
                 <IssuesDashboard />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/issues/stats"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <IssuesStats />
               </Layout>
             </ProtectedRoute>
           }

@@ -755,18 +755,49 @@ function getDefaultColor(code: string): string {
 }
 
 /**
- * Get issues choropleth data (district polygons with issue counts)
+ * Get issues choropleth data (admin unit polygons with issue counts)
  * GET /api/issues/choropleth
- * Returns GeoJSON FeatureCollection with district geometries and issue statistics
+ * Query params:
+ *   - level: Admin level (2=district, 3=constituency, 4=subcounty, 5=parish). Default: 2
+ *   - parentId: Filter to children of this parent admin unit
+ *   - categoryIds, categoryId, startDate, endDate, severity: Issue filters
+ * Returns GeoJSON FeatureCollection with admin unit geometries and issue statistics
  */
 export const getIssuesChoropleth = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { categoryIds, categoryId, startDate, endDate, severity } = req.query;
+    const { level, parentId, categoryIds, categoryId, startDate, endDate, severity } = req.query;
+
+    // Parse admin level (default to district level 2)
+    const adminLevel = level ? parseInt(level as string) : 2;
+    const parentUnitId = parentId ? parseInt(parentId as string) : null;
+
+    // Determine which field to group by based on level
+    const levelFieldMap: Record<number, string> = {
+      2: 'districtId',
+      3: 'constituencyId',
+      4: 'subcountyId',
+      5: 'parishId'
+    };
+    const groupField = levelFieldMap[adminLevel] || 'districtId';
 
     // Build where clause for issues
     const where: any = {
-      districtId: { not: null }
+      [groupField]: { not: null }
     };
+
+    // If we have a parent filter, add constraints based on level
+    if (parentUnitId) {
+      if (adminLevel === 3) {
+        // Constituencies within a district
+        where.districtId = parentUnitId;
+      } else if (adminLevel === 4) {
+        // Subcounties within a constituency
+        where.constituencyId = parentUnitId;
+      } else if (adminLevel === 5) {
+        // Parishes within a subcounty
+        where.subcountyId = parentUnitId;
+      }
+    }
 
     // Support multiple category IDs (comma-separated) or single categoryId
     if (categoryIds) {
@@ -799,6 +830,9 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
       where,
       select: {
         districtId: true,
+        constituencyId: true,
+        subcountyId: true,
+        parishId: true,
         date: true,
         injuryCount: true,
         deathCount: true,
@@ -813,10 +847,9 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
     const categories = await prisma.issueCategory.findMany({
       select: { id: true, name: true, code: true }
     });
-    const categoryNames = new Map(categories.map(c => [c.id, c.name]));
 
-    // Create a map of district ID to detailed issue data
-    interface DistrictData {
+    // Create a map of admin unit ID to detailed issue data
+    interface UnitData {
       count: number;
       lastDate: Date | null;
       injuries: number;
@@ -824,13 +857,25 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
       arrests: number;
       byCategory: Record<string, number>; // categoryName -> count
     }
-    const countMap = new Map<number, DistrictData>();
+    const countMap = new Map<number, UnitData>();
     let maxCount = 0;
 
-    issues.forEach(issue => {
-      if (!issue.districtId) return;
+    // Get the unit ID based on level
+    const getUnitId = (issue: any): number | null => {
+      switch (adminLevel) {
+        case 2: return issue.districtId;
+        case 3: return issue.constituencyId;
+        case 4: return issue.subcountyId;
+        case 5: return issue.parishId;
+        default: return issue.districtId;
+      }
+    };
 
-      let data = countMap.get(issue.districtId);
+    issues.forEach(issue => {
+      const unitId = getUnitId(issue);
+      if (!unitId) return;
+
+      let data = countMap.get(unitId);
       if (!data) {
         data = {
           count: 0,
@@ -840,7 +885,7 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
           arrests: 0,
           byCategory: {}
         };
-        countMap.set(issue.districtId, data);
+        countMap.set(unitId, data);
       }
 
       data.count++;
@@ -857,14 +902,21 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
       maxCount = Math.max(maxCount, data.count);
     });
 
-    // Get all districts (level 2) with geometry
-    const districts = await prisma.administrativeUnit.findMany({
-      where: { level: 2 },
+    // Build where clause for admin units
+    const unitWhere: any = { level: adminLevel };
+    if (parentUnitId) {
+      unitWhere.parentId = parentUnitId;
+    }
+
+    // Get admin units at the specified level with geometry
+    const adminUnits = await prisma.administrativeUnit.findMany({
+      where: unitWhere,
       select: {
         id: true,
         name: true,
         code: true,
-        geometry: true
+        geometry: true,
+        parentId: true
       }
     });
 
@@ -892,12 +944,12 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
     // Build GeoJSON features
     const features: any[] = [];
 
-    for (const district of districts) {
-      // Skip districts without geometry
-      if (!district.geometry) continue;
+    for (const unit of adminUnits) {
+      // Skip units without geometry
+      if (!unit.geometry) continue;
 
       try {
-        const rawGeometry = JSON.parse(district.geometry);
+        const rawGeometry = JSON.parse(unit.geometry);
 
         // Basic validation
         if (!rawGeometry || !rawGeometry.coordinates || !rawGeometry.type) {
@@ -907,11 +959,10 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
         // Clean geometry to remove empty polygon arrays that break MapLibre
         const geometry = cleanGeometry(rawGeometry);
         if (!geometry) {
-          console.warn(`District ${district.name} has no valid polygons after cleaning`);
           continue;
         }
 
-        const issueData = countMap.get(district.id) || {
+        const issueData = countMap.get(unit.id) || {
           count: 0,
           lastDate: null,
           injuries: 0,
@@ -925,7 +976,7 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
         const intensity = maxCount > 0 ? count / maxCount : 0;
         const color = getIssueIntensityColor(intensity, count);
 
-        // Get top categories for this district (sorted by count)
+        // Get top categories for this unit (sorted by count)
         const topCategories = Object.entries(issueData.byCategory)
           .sort((a, b) => b[1] - a[1])
           .slice(0, 5)
@@ -933,11 +984,13 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
 
         features.push({
           type: 'Feature' as const,
-          id: district.id,
+          id: unit.id,
           properties: {
-            unitId: district.id,
-            unitName: district.name,
-            unitCode: district.code,
+            unitId: unit.id,
+            unitName: unit.name,
+            unitCode: unit.code,
+            level: adminLevel,
+            parentId: unit.parentId,
             issueCount: count,
             lastIssueDate: issueData.lastDate,
             injuries: issueData.injuries,
@@ -951,19 +1004,21 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
           geometry: geometry
         });
       } catch (e) {
-        console.warn(`Failed to parse geometry for district ${district.name}:`, e);
+        // Skip invalid geometry
       }
     }
 
-    console.log(`[Issues Choropleth] Returning ${features.length} valid features out of ${districts.length} districts`);
+    console.log(`[Issues Choropleth] Level ${adminLevel}: ${features.length} features, ${countMap.size} with issues`);
 
     res.json({
       type: 'FeatureCollection',
       features,
       metadata: {
         totalIssues: issues.length,
-        districtsWithIssues: countMap.size,
-        maxIssuesPerDistrict: maxCount
+        unitsWithIssues: countMap.size,
+        maxIssuesPerUnit: maxCount,
+        level: adminLevel,
+        parentId: parentUnitId
       }
     });
   } catch (error) {
