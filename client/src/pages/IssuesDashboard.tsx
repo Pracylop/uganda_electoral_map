@@ -190,12 +190,52 @@ export function IssuesDashboard() {
           const props = e.features[0].properties;
           if (!props) return;
 
-          new maplibregl.Popup()
+          // Parse top categories
+          let categoriesHtml = '';
+          if (props.topCategories && props.issueCount > 0) {
+            try {
+              const cats = JSON.parse(props.topCategories);
+              if (cats.length > 0) {
+                categoriesHtml = `
+                  <div style="margin-top: 8px; border-top: 1px solid #e5e7eb; padding-top: 8px;">
+                    <div style="font-size: 11px; color: #6b7280; margin-bottom: 4px;">By Category:</div>
+                    ${cats.map((c: {name: string; count: number}) =>
+                      `<div style="display: flex; justify-content: space-between; font-size: 12px;">
+                        <span style="color: #374151;">${c.name}</span>
+                        <span style="color: #1f2937; font-weight: 500;">${c.count}</span>
+                      </div>`
+                    ).join('')}
+                  </div>
+                `;
+              }
+            } catch (err) {
+              console.warn('Failed to parse categories:', err);
+            }
+          }
+
+          // Build casualties section
+          let casualtiesHtml = '';
+          const totalCasualties = (props.injuries || 0) + (props.deaths || 0) + (props.arrests || 0);
+          if (totalCasualties > 0) {
+            const parts = [];
+            if (props.deaths > 0) parts.push(`💀 ${props.deaths}`);
+            if (props.injuries > 0) parts.push(`🩹 ${props.injuries}`);
+            if (props.arrests > 0) parts.push(`🚔 ${props.arrests}`);
+            casualtiesHtml = `
+              <div style="display: flex; gap: 8px; margin-top: 6px; padding: 4px 8px; background: #fef2f2; border-radius: 4px; font-size: 12px;">
+                ${parts.join(' ')}
+              </div>
+            `;
+          }
+
+          new maplibregl.Popup({ maxWidth: '280px' })
             .setLngLat(e.lngLat)
             .setHTML(`
-              <div style="padding: 8px; color: #000;">
-                <h3 style="font-weight: bold; margin-bottom: 4px;">${props.unitName}</h3>
-                <p style="margin: 0;"><strong>${props.issueCount}</strong> issue${props.issueCount !== 1 ? 's' : ''} reported</p>
+              <div style="padding: 8px; color: #000; font-family: system-ui, sans-serif;">
+                <h3 style="font-weight: bold; margin-bottom: 4px; font-size: 14px;">${props.unitName}</h3>
+                <p style="margin: 0; font-size: 13px;"><strong>${props.issueCount}</strong> issue${props.issueCount !== 1 ? 's' : ''} reported</p>
+                ${casualtiesHtml}
+                ${categoriesHtml}
               </div>
             `)
             .addTo(map);

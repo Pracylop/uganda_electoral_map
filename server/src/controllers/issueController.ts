@@ -794,28 +794,67 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
       }
     }
 
-    // Get issue counts grouped by district
-    const issueCounts = await prisma.electoralIssue.groupBy({
-      by: ['districtId'],
+    // Get all issues with category and casualty data for detailed breakdown
+    const issues = await prisma.electoralIssue.findMany({
       where,
-      _count: true,
-      _max: {
-        date: true // Get most recent issue date
+      select: {
+        districtId: true,
+        date: true,
+        injuryCount: true,
+        deathCount: true,
+        arrestCount: true,
+        issueCategory: {
+          select: { id: true, name: true, code: true }
+        }
       }
     });
 
-    // Create a map of district ID to issue count
-    const countMap = new Map<number, { count: number; lastDate: Date | null }>();
+    // Get all categories for reference
+    const categories = await prisma.issueCategory.findMany({
+      select: { id: true, name: true, code: true }
+    });
+    const categoryNames = new Map(categories.map(c => [c.id, c.name]));
+
+    // Create a map of district ID to detailed issue data
+    interface DistrictData {
+      count: number;
+      lastDate: Date | null;
+      injuries: number;
+      deaths: number;
+      arrests: number;
+      byCategory: Record<string, number>; // categoryName -> count
+    }
+    const countMap = new Map<number, DistrictData>();
     let maxCount = 0;
 
-    issueCounts.forEach(item => {
-      if (item.districtId) {
-        countMap.set(item.districtId, {
-          count: item._count,
-          lastDate: item._max.date
-        });
-        maxCount = Math.max(maxCount, item._count);
+    issues.forEach(issue => {
+      if (!issue.districtId) return;
+
+      let data = countMap.get(issue.districtId);
+      if (!data) {
+        data = {
+          count: 0,
+          lastDate: null,
+          injuries: 0,
+          deaths: 0,
+          arrests: 0,
+          byCategory: {}
+        };
+        countMap.set(issue.districtId, data);
       }
+
+      data.count++;
+      if (!data.lastDate || (issue.date && issue.date > data.lastDate)) {
+        data.lastDate = issue.date;
+      }
+      data.injuries += issue.injuryCount || 0;
+      data.deaths += issue.deathCount || 0;
+      data.arrests += issue.arrestCount || 0;
+
+      const catName = issue.issueCategory?.name || 'Other';
+      data.byCategory[catName] = (data.byCategory[catName] || 0) + 1;
+
+      maxCount = Math.max(maxCount, data.count);
     });
 
     // Get all districts (level 2) with geometry
@@ -872,12 +911,25 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
           continue;
         }
 
-        const issueData = countMap.get(district.id) || { count: 0, lastDate: null };
+        const issueData = countMap.get(district.id) || {
+          count: 0,
+          lastDate: null,
+          injuries: 0,
+          deaths: 0,
+          arrests: 0,
+          byCategory: {}
+        };
         const count = issueData.count;
 
         // Calculate color based on issue count (0 = green, max = red)
         const intensity = maxCount > 0 ? count / maxCount : 0;
         const color = getIssueIntensityColor(intensity, count);
+
+        // Get top categories for this district (sorted by count)
+        const topCategories = Object.entries(issueData.byCategory)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([name, cnt]) => ({ name, count: cnt }));
 
         features.push({
           type: 'Feature' as const,
@@ -888,6 +940,11 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
             unitCode: district.code,
             issueCount: count,
             lastIssueDate: issueData.lastDate,
+            injuries: issueData.injuries,
+            deaths: issueData.deaths,
+            arrests: issueData.arrests,
+            totalCasualties: issueData.injuries + issueData.deaths + issueData.arrests,
+            topCategories: JSON.stringify(topCategories),
             fillColor: color,
             intensity: intensity
           },
