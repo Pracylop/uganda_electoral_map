@@ -391,7 +391,7 @@ export const createIssue = async (req: Request, res: Response): Promise<void> =>
       date,
       time,
       summary,
-      description,
+      fullText,
       source,
       location,
       village,
@@ -440,7 +440,7 @@ export const createIssue = async (req: Request, res: Response): Promise<void> =>
         date: new Date(date),
         time: time || null,
         summary,
-        description: description || null,
+        fullText: fullText || null,
         source: source || null,
         location: location || null,
         village: village || null,
@@ -499,7 +499,7 @@ export const updateIssue = async (req: Request, res: Response): Promise<void> =>
       date,
       time,
       summary,
-      description,
+      fullText,
       source,
       location,
       village,
@@ -538,7 +538,7 @@ export const updateIssue = async (req: Request, res: Response): Promise<void> =>
     if (date !== undefined) updateData.date = new Date(date);
     if (time !== undefined) updateData.time = time || null;
     if (summary !== undefined) updateData.summary = summary;
-    if (description !== undefined) updateData.description = description || null;
+    if (fullText !== undefined) updateData.fullText = fullText || null;
     if (source !== undefined) updateData.source = source || null;
     if (location !== undefined) updateData.location = location || null;
     if (village !== undefined) updateData.village = village || null;
