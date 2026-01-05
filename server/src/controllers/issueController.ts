@@ -961,7 +961,7 @@ export const getIssuesChoropleth = async (req: Request, res: Response): Promise<
       type: 'FeatureCollection',
       features,
       metadata: {
-        totalIssues: issueCounts.reduce((sum, item) => sum + item._count, 0),
+        totalIssues: issues.length,
         districtsWithIssues: countMap.size,
         maxIssuesPerDistrict: maxCount
       }
