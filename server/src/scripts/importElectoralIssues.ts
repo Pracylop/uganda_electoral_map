@@ -31,6 +31,7 @@ const categoryMapping: { [key: string]: string } = {
   'Media Interference': 'media_interference',
   'Registration Issues': 'registration_issue',
   'Arrest/Detention': 'arrest_detention',
+  'Arrest/Kidnap': 'arrest_detention',
   'Supporter Arrests': 'arrest_detention',
   'Supporter Kidnap': 'arrest_detention',
   'Property Damage': 'property_damage',
@@ -119,12 +120,19 @@ async function main() {
   try {
     // Navigate from app/server/src/scripts to project root Data directory
     const projectRoot = path.resolve(__dirname, '..', '..', '..', '..');
-    const csvPath = path.join(projectRoot, 'Data/Election Issues/3_electoral_issues_cleaned.csv');
+    const csvPath = path.join(projectRoot, 'Data/Election Issues/8_electoral_issues_UPDATED.csv');
     console.log(`Data file: ${csvPath}`);
 
     if (!fs.existsSync(csvPath)) {
       throw new Error(`File not found: ${csvPath}`);
     }
+
+    // Delete existing electoral issues
+    console.log('\nDeleting existing electoral issues...');
+    const deletedCandidates = await prisma.electoralIssueCandidate.deleteMany({});
+    console.log(`  Deleted ${deletedCandidates.count} issue-candidate relations`);
+    const deletedIssues = await prisma.electoralIssue.deleteMany({});
+    console.log(`  Deleted ${deletedIssues.count} existing issues`);
 
     // Load issue categories
     console.log('\nLoading issue categories...');
@@ -191,6 +199,7 @@ async function main() {
     let categoryNotFound = 0;
 
     for (const row of rows) {
+      const caseId = row['CASEID'] || null;
       const dateStr = row['DATE'] || '';
       const timeStr = row['TIME'] || '';
       const districtName = (row['DISTRICT'] || '').toUpperCase();
@@ -200,8 +209,14 @@ async function main() {
       const village = row['VILLAGE'] || null;
       const location = row['LOCATION'] || null;
       const categoryStr = row['ISSUE_CATEGORY'] || 'Other';
+      const protagonist = row['PROTAGONIST'] || null;
+      const targetCategory = row['TARGET_CATEGORY'] || null;
+      const targetName = row['TARGET_NAME'] || null;
       const summary = row['SUMMARY'] || '';
-      const fullText = row['FULL_TEXT'] || null;
+      const injuryCount = parseInt(row['INJURY'] || '0') || 0;
+      const deathCount = parseInt(row['DEATH'] || '0') || 0;
+      const arrestCount = parseInt(row['ARREST'] || '0') || 0;
+      const source = row['SOURCE'] || null;
       const urls = row['URLS'] || null;
 
       // Parse date
@@ -240,22 +255,31 @@ async function main() {
         }
       }
 
-      // Check for duplicate (same date, summary)
-      const existing = await prisma.electoralIssue.findFirst({
-        where: {
-          date,
-          summary: summary.substring(0, 100), // Compare first 100 chars
-        },
-      });
+      // Check for duplicate by caseId if available, or by date+summary
+      let existing = null;
+      if (caseId) {
+        existing = await prisma.electoralIssue.findUnique({
+          where: { caseId },
+        });
+      }
+      if (!existing) {
+        existing = await prisma.electoralIssue.findFirst({
+          where: {
+            date,
+            summary: summary.substring(0, 100), // Compare first 100 chars
+          },
+        });
+      }
 
       if (existing) {
         skipped++;
         continue;
       }
 
-      // Create issue
+      // Create issue with all new fields
       await prisma.electoralIssue.create({
         data: {
+          caseId,
           issueCategoryId: categoryId,
           date,
           time,
@@ -266,8 +290,13 @@ async function main() {
           village,
           location,
           summary: summary.substring(0, 500), // Limit to field size
-          fullText,
-          source: 'Daily Monitor', // Default source based on data
+          protagonist,
+          targetCategory,
+          targetName,
+          injuryCount,
+          deathCount,
+          arrestCount,
+          source,
           urls,
           status: 'reported',
         },

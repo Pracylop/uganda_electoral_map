@@ -431,6 +431,7 @@ model IssueCategory {
 
 model ElectoralIssue {
   id              Int         @id @default(autoincrement())
+  caseId          String?     @unique @map("case_id") @db.VarChar(50) // External case identifier
   electionId      Int?        @map("election_id")
   issueCategoryId Int         @map("issue_category_id")
   date            DateTime    @db.Date
@@ -446,8 +447,15 @@ model ElectoralIssue {
   severity        Int?        // Override severity (1-5)
   summary         String      @db.VarChar(500)
   fullText        String?     @map("full_text") @db.Text
+  protagonist     String?     @db.VarChar(200) // Who initiated the issue
+  targetCategory  String?     @map("target_category") @db.VarChar(100) // Category of target
+  targetName      String?     @map("target_name") @db.VarChar(200) // Specific target name
+  injuryCount     Int?        @default(0) @map("injury_count") // Number of injuries
+  deathCount      Int?        @default(0) @map("death_count") // Number of deaths
+  arrestCount     Int?        @default(0) @map("arrest_count") // Number of arrests
   source          String?     @db.VarChar(200) // "Daily Monitor", etc.
   photoUrl        String?     @map("photo_url") @db.VarChar(255)
+  image           String?     @db.VarChar(255) // Image URL/path
   urls            String?     @db.Text // JSON array of URLs
   status          IssueStatus @default(reported)
   createdAt       DateTime    @default(now()) @map("created_at")

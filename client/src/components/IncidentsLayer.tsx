@@ -108,6 +108,7 @@ export function IncidentsLayer({ map, visible, filters, onIssueClick }: Incident
       });
 
       // Unclustered point circles with category colors
+      // Size based on both severity and casualties
       map.addLayer({
         id: 'incidents-circles',
         type: 'circle',
@@ -116,15 +117,35 @@ export function IncidentsLayer({ map, visible, filters, onIssueClick }: Incident
         paint: {
           'circle-color': ['coalesce', ['get', 'categoryColor'], '#808080'],
           'circle-radius': [
-            'interpolate',
-            ['linear'],
-            ['get', 'severity'],
-            1, 6,
-            3, 10,
-            5, 14,
+            '+',
+            // Base size from severity
+            [
+              'interpolate',
+              ['linear'],
+              ['coalesce', ['get', 'severity'], 1],
+              1, 6,
+              3, 9,
+              5, 12,
+            ],
+            // Additional size from casualties (capped at 8px extra)
+            [
+              'min',
+              8,
+              ['*', 2, ['coalesce', ['get', 'totalCasualties'], 0]]
+            ]
           ],
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': [
+            'case',
+            ['>', ['coalesce', ['get', 'deathCount'], 0], 0],
+            3, // Thicker stroke for incidents with deaths
+            2
+          ],
+          'circle-stroke-color': [
+            'case',
+            ['>', ['coalesce', ['get', 'deathCount'], 0], 0],
+            '#dc2626', // Red stroke for incidents with deaths
+            '#ffffff'
+          ],
           'circle-opacity': 0.85,
         },
       });
@@ -248,8 +269,26 @@ function createIncidentPopupHTML(props: Record<string, any>): string {
   const severityStars = '★'.repeat(props.severity || 1) + '☆'.repeat(5 - (props.severity || 1));
   const color = props.categoryColor || DEFAULT_COLORS[props.categoryCode] || '#808080';
 
+  // Build casualties section if any
+  const casualties: string[] = [];
+  if (props.deathCount > 0) casualties.push(`💀 ${props.deathCount} death${props.deathCount > 1 ? 's' : ''}`);
+  if (props.injuryCount > 0) casualties.push(`🩹 ${props.injuryCount} injur${props.injuryCount > 1 ? 'ies' : 'y'}`);
+  if (props.arrestCount > 0) casualties.push(`🚔 ${props.arrestCount} arrest${props.arrestCount > 1 ? 's' : ''}`);
+  const casualtiesHtml = casualties.length > 0
+    ? `<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; padding: 6px; background: #fef2f2; border-radius: 4px;">${casualties.join(' ')}</div>`
+    : '';
+
+  // Build protagonist/target section
+  let actorsHtml = '';
+  if (props.protagonist || props.targetName) {
+    const parts: string[] = [];
+    if (props.protagonist) parts.push(`<strong>By:</strong> ${props.protagonist}`);
+    if (props.targetName) parts.push(`<strong>Target:</strong> ${props.targetName}${props.targetCategory ? ` (${props.targetCategory})` : ''}`);
+    actorsHtml = `<div style="font-size: 11px; color: #555; margin-bottom: 8px; padding: 6px; background: #f3f4f6; border-radius: 4px;">${parts.join('<br/>')}</div>`;
+  }
+
   return `
-    <div class="incident-popup" style="font-family: system-ui, sans-serif;">
+    <div class="incident-popup" style="font-family: system-ui, sans-serif; max-width: 320px;">
       <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
         <span style="
           display: inline-block;
@@ -259,30 +298,37 @@ function createIncidentPopupHTML(props: Record<string, any>): string {
           background-color: ${color};
         "></span>
         <strong style="color: #1a1a1a;">${props.category || 'Unknown'}</strong>
+        ${props.caseId ? `<span style="font-size: 10px; color: #999; margin-left: auto;">#${props.caseId}</span>` : ''}
       </div>
 
       <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
         <span>${date}</span>
         ${props.time ? ` at ${props.time}` : ''}
+        ${props.source ? ` • <em>${props.source}</em>` : ''}
       </div>
+
+      ${casualtiesHtml}
 
       <div style="font-size: 13px; color: #333; margin-bottom: 8px; line-height: 1.4;">
         ${props.summary || 'No details available'}
       </div>
 
+      ${actorsHtml}
+
       <div style="font-size: 11px; color: #666; border-top: 1px solid #eee; padding-top: 8px;">
         ${props.location ? `<div>📍 ${props.location}</div>` : ''}
         ${props.district ? `<div>🏛️ ${props.district}${props.constituency ? ` > ${props.constituency}` : ''}</div>` : ''}
-        <div style="color: #ff6600;">Severity: ${severityStars}</div>
-        <div style="
-          display: inline-block;
-          padding: 2px 8px;
-          background: ${props.status === 'resolved' ? '#10B981' : '#F59E0B'};
-          color: white;
-          border-radius: 4px;
-          font-size: 10px;
-          margin-top: 4px;
-        ">${(props.status || 'reported').toUpperCase()}</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+          <span style="color: #ff6600;">Severity: ${severityStars}</span>
+          <span style="
+            display: inline-block;
+            padding: 2px 8px;
+            background: ${props.status === 'resolved' ? '#10B981' : '#F59E0B'};
+            color: white;
+            border-radius: 4px;
+            font-size: 10px;
+          ">${(props.status || 'reported').toUpperCase()}</span>
+        </div>
       </div>
     </div>
   `;

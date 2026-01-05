@@ -228,6 +228,9 @@ export const getIssuesGeoJSON = async (req: Request, res: Response): Promise<voi
         }
       }
 
+      // Calculate total casualties for marker sizing
+      const totalCasualties = (issue.injuryCount || 0) + (issue.deathCount || 0) + (issue.arrestCount || 0);
+
       return {
         type: 'Feature' as const,
         geometry: {
@@ -236,6 +239,7 @@ export const getIssuesGeoJSON = async (req: Request, res: Response): Promise<voi
         },
         properties: {
           id: issue.id,
+          caseId: issue.caseId,
           date: issue.date,
           time: issue.time,
           category: issue.issueCategory.name,
@@ -243,10 +247,18 @@ export const getIssuesGeoJSON = async (req: Request, res: Response): Promise<voi
           categoryColor: issue.issueCategory.color || getDefaultColor(issue.issueCategory.code),
           severity: issue.severity || issue.issueCategory.severity,
           summary: issue.summary,
+          protagonist: issue.protagonist,
+          targetCategory: issue.targetCategory,
+          targetName: issue.targetName,
+          injuryCount: issue.injuryCount || 0,
+          deathCount: issue.deathCount || 0,
+          arrestCount: issue.arrestCount || 0,
+          totalCasualties,
           location: issue.location || issue.village,
           district: issue.district?.name,
           districtId: issue.districtId,
           constituency: issue.constituency?.name,
+          source: issue.source,
           status: issue.status
         }
       };
@@ -317,7 +329,8 @@ export const getIssueStats = async (req: Request, res: Response): Promise<void> 
       totalIssues,
       byCategory,
       byStatus,
-      byDistrict
+      byDistrict,
+      casualtyTotals
     ] = await Promise.all([
       prisma.electoralIssue.count({ where }),
       prisma.electoralIssue.groupBy({
@@ -336,6 +349,14 @@ export const getIssueStats = async (req: Request, res: Response): Promise<void> 
         _count: true,
         orderBy: { _count: { districtId: 'desc' } },
         take: 10
+      }),
+      prisma.electoralIssue.aggregate({
+        where,
+        _sum: {
+          injuryCount: true,
+          deathCount: true,
+          arrestCount: true
+        }
       })
     ]);
 
@@ -353,6 +374,14 @@ export const getIssueStats = async (req: Request, res: Response): Promise<void> 
 
     res.json({
       total: totalIssues,
+      casualties: {
+        injuries: casualtyTotals._sum.injuryCount || 0,
+        deaths: casualtyTotals._sum.deathCount || 0,
+        arrests: casualtyTotals._sum.arrestCount || 0,
+        total: (casualtyTotals._sum.injuryCount || 0) +
+               (casualtyTotals._sum.deathCount || 0) +
+               (casualtyTotals._sum.arrestCount || 0)
+      },
       byCategory: byCategory.map(item => ({
         category: categoryMap.get(item.issueCategoryId)?.name || 'Unknown',
         categoryCode: categoryMap.get(item.issueCategoryId)?.code,
@@ -392,6 +421,12 @@ export const createIssue = async (req: Request, res: Response): Promise<void> =>
       time,
       summary,
       fullText,
+      protagonist,
+      targetCategory,
+      targetName,
+      injuryCount,
+      deathCount,
+      arrestCount,
       source,
       location,
       village,
@@ -441,6 +476,12 @@ export const createIssue = async (req: Request, res: Response): Promise<void> =>
         time: time || null,
         summary,
         fullText: fullText || null,
+        protagonist: protagonist || null,
+        targetCategory: targetCategory || null,
+        targetName: targetName || null,
+        injuryCount: injuryCount ? parseInt(injuryCount) : 0,
+        deathCount: deathCount ? parseInt(deathCount) : 0,
+        arrestCount: arrestCount ? parseInt(arrestCount) : 0,
         source: source || null,
         location: location || null,
         village: village || null,
@@ -500,6 +541,12 @@ export const updateIssue = async (req: Request, res: Response): Promise<void> =>
       time,
       summary,
       fullText,
+      protagonist,
+      targetCategory,
+      targetName,
+      injuryCount,
+      deathCount,
+      arrestCount,
       source,
       location,
       village,
@@ -539,6 +586,12 @@ export const updateIssue = async (req: Request, res: Response): Promise<void> =>
     if (time !== undefined) updateData.time = time || null;
     if (summary !== undefined) updateData.summary = summary;
     if (fullText !== undefined) updateData.fullText = fullText || null;
+    if (protagonist !== undefined) updateData.protagonist = protagonist || null;
+    if (targetCategory !== undefined) updateData.targetCategory = targetCategory || null;
+    if (targetName !== undefined) updateData.targetName = targetName || null;
+    if (injuryCount !== undefined) updateData.injuryCount = parseInt(injuryCount) || 0;
+    if (deathCount !== undefined) updateData.deathCount = parseInt(deathCount) || 0;
+    if (arrestCount !== undefined) updateData.arrestCount = parseInt(arrestCount) || 0;
     if (source !== undefined) updateData.source = source || null;
     if (location !== undefined) updateData.location = location || null;
     if (village !== undefined) updateData.village = village || null;
