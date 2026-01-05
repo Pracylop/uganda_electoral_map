@@ -248,6 +248,21 @@ export function useParties() {
 }
 
 /**
+ * Hook for regional breakdown (results by subregion)
+ */
+export function useRegionalBreakdown(electionId: number | null, enabled = true) {
+  return useQuery({
+    queryKey: ['regionalBreakdown', electionId],
+    queryFn: async () => {
+      if (!electionId) return null;
+      return fetchWithAuth<any>(`/api/results/regional/${electionId}`);
+    },
+    staleTime: CACHE_TTL.NATIONAL_TOTALS,
+    enabled: enabled && electionId !== null,
+  });
+}
+
+/**
  * Prefetch map data for a specific election and level
  * Call this to warm the cache for smoother navigation
  */

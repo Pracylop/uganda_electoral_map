@@ -2,7 +2,8 @@ import React from 'react';
 import LiveTotals from './LiveTotals';
 import CandidateBar from './CandidateBar';
 import ProgressIndicator from './ProgressIndicator';
-import { useNationalTotals, usePartySummary } from '../hooks/useElectionData';
+import RegionalBreakdown from './RegionalBreakdown';
+import { useNationalTotals, usePartySummary, useRegionalBreakdown } from '../hooks/useElectionData';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { invalidateElectionQueries } from '../lib/queryClient';
 import '../dashboard.css';
@@ -53,6 +54,12 @@ const NationalDashboard: React.FC<NationalDashboardProps> = ({ electionId, onClo
     electionId,
     null,
     isMPElection
+  );
+
+  // Fetch regional breakdown for presidential elections
+  const { data: regionalData } = useRegionalBreakdown(
+    electionId,
+    !isMPElection // Only fetch for presidential elections
   );
 
   // WebSocket for real-time updates (uses shared connection with exponential backoff)
@@ -235,6 +242,15 @@ const NationalDashboard: React.FC<NationalDashboardProps> = ({ electionId, onClo
           </>
         )}
       </div>
+
+      {/* Regional Breakdown (Presidential elections only) */}
+      {!isMPElection && regionalData && (
+        <RegionalBreakdown
+          regionalBreakdown={regionalData.regionalBreakdown}
+          totalSubregions={regionalData.totalSubregions}
+          reportingSubregions={regionalData.reportingSubregions}
+        />
+      )}
     </div>
   );
 };

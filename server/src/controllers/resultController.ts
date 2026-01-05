@@ -816,3 +816,150 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+// Get results broken down by subregion (for dashboard regional panel)
+export const getRegionalBreakdown = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const electionId = parseInt(req.params.electionId);
+
+    if (isNaN(electionId)) {
+      res.status(400).json({ error: 'Invalid election ID' });
+      return;
+    }
+
+    // Verify election exists
+    const election = await prisma.election.findUnique({
+      where: { id: electionId }
+    });
+
+    if (!election) {
+      res.status(404).json({ error: 'Election not found' });
+      return;
+    }
+
+    // Get all subregions (level 1)
+    const subregions = await prisma.administrativeUnit.findMany({
+      where: { level: 1 },
+      select: { id: true, name: true }
+    });
+
+    // Build a map of admin unit ID -> subregion ID
+    // First, get all admin units with their parent relationships
+    const allUnits = await prisma.administrativeUnit.findMany({
+      select: { id: true, parentId: true, level: true }
+    });
+
+    const unitMap = new Map<number, { parentId: number | null; level: number }>();
+    allUnits.forEach(u => unitMap.set(u.id, { parentId: u.parentId, level: u.level }));
+
+    // Function to find subregion (level 1) for any admin unit
+    const findSubregionId = (unitId: number): number | null => {
+      let current = unitMap.get(unitId);
+      while (current) {
+        if (current.level === 1) return unitId;
+        if (!current.parentId) return null;
+        unitId = current.parentId;
+        current = unitMap.get(unitId);
+      }
+      return null;
+    };
+
+    // Get all approved results for this election
+    const results = await prisma.result.findMany({
+      where: {
+        electionId,
+        status: 'approved'
+      },
+      include: {
+        candidate: {
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { abbreviation: true, color: true } }
+          }
+        }
+      }
+    });
+
+    // Aggregate results by subregion and candidate
+    const subregionData = new Map<number, {
+      subregionId: number;
+      subregionName: string;
+      totalVotes: number;
+      candidates: Map<number, {
+        candidateId: number;
+        candidateName: string;
+        party: string;
+        partyColor: string | null;
+        votes: number;
+      }>;
+    }>();
+
+    // Initialize subregions
+    subregions.forEach(sr => {
+      subregionData.set(sr.id, {
+        subregionId: sr.id,
+        subregionName: sr.name,
+        totalVotes: 0,
+        candidates: new Map()
+      });
+    });
+
+    // Aggregate results
+    results.forEach(result => {
+      const subregionId = findSubregionId(result.adminUnitId);
+      if (!subregionId) return;
+
+      const region = subregionData.get(subregionId);
+      if (!region) return;
+
+      region.totalVotes += result.votes;
+
+      const existing = region.candidates.get(result.candidateId);
+      if (existing) {
+        existing.votes += result.votes;
+      } else {
+        region.candidates.set(result.candidateId, {
+          candidateId: result.candidateId,
+          candidateName: result.candidate.person.fullName,
+          party: result.candidate.party?.abbreviation || 'IND',
+          partyColor: result.candidate.party?.color || null,
+          votes: result.votes
+        });
+      }
+    });
+
+    // Convert to response format
+    const regionalBreakdown = Array.from(subregionData.values())
+      .map(region => {
+        const candidateList = Array.from(region.candidates.values())
+          .map(c => ({
+            ...c,
+            percentage: region.totalVotes > 0
+              ? parseFloat(((c.votes / region.totalVotes) * 100).toFixed(2))
+              : 0
+          }))
+          .sort((a, b) => b.votes - a.votes);
+
+        return {
+          subregionId: region.subregionId,
+          subregionName: region.subregionName,
+          totalVotes: region.totalVotes,
+          leadingCandidate: candidateList[0] || null,
+          candidates: candidateList
+        };
+      })
+      .filter(r => r.totalVotes > 0) // Only include regions with votes
+      .sort((a, b) => b.totalVotes - a.totalVotes);
+
+    res.json({
+      electionId,
+      electionName: election.name,
+      totalSubregions: subregions.length,
+      reportingSubregions: regionalBreakdown.length,
+      regionalBreakdown
+    });
+  } catch (error) {
+    console.error('Get regional breakdown error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};

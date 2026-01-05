@@ -8,7 +8,8 @@ import {
   rejectResult,
   getResultsByElection,
   getPendingResults,
-  getNationalTotals
+  getNationalTotals,
+  getRegionalBreakdown
 } from '../controllers/resultController';
 import { authenticate, authorize } from '../middleware/auth';
 
@@ -19,6 +20,9 @@ router.get('/election/:electionId', authenticate, getResultsByElection);
 
 // Get national totals for election (for broadcast dashboard)
 router.get('/national/:electionId', authenticate, getNationalTotals);
+
+// Get results by subregion (for regional breakdown panel)
+router.get('/regional/:electionId', authenticate, getRegionalBreakdown);
 
 // Pending results (Editor/Admin only)
 router.get('/pending', authenticate, authorize('editor', 'admin'), getPendingResults);

@@ -617,3 +617,226 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Regional Breakdown Panel */
+.regional-breakdown {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  margin-top: 2rem;
+  animation: fadeInUp 0.6s ease-out 0.5s backwards;
+}
+
+.regional-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.regional-header h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.region-count {
+  font-size: 0.875rem;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.375rem 0.75rem;
+  border-radius: 1rem;
+}
+
+.no-regional-data {
+  text-align: center;
+  color: #94a3b8;
+  padding: 2rem;
+  font-style: italic;
+}
+
+.region-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.region-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.region-card:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.region-card.expanded {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.region-summary {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  cursor: pointer;
+  gap: 1rem;
+}
+
+.region-info {
+  flex: 1;
+}
+
+.region-name {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  text-transform: capitalize;
+}
+
+.region-votes {
+  font-size: 0.875rem;
+  color: #94a3b8;
+  margin-top: 0.25rem;
+}
+
+.region-leader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.leader-color {
+  width: 4px;
+  height: 2.5rem;
+  border-radius: 2px;
+}
+
+.leader-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.leader-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.leader-percentage {
+  font-size: 0.75rem;
+  color: #60a5fa;
+  font-weight: 700;
+}
+
+.expand-icon {
+  color: #94a3b8;
+  transition: transform 0.3s ease;
+}
+
+.region-card.expanded .expand-icon {
+  color: #60a5fa;
+}
+
+.region-details {
+  padding: 0 1rem 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.region-candidate {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  gap: 0.75rem;
+}
+
+.region-candidate:last-child {
+  border-bottom: none;
+}
+
+.candidate-color {
+  width: 3px;
+  height: 2rem;
+  border-radius: 2px;
+}
+
+.candidate-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.region-candidate .candidate-name {
+  font-size: 0.875rem;
+  color: #e2e8f0;
+}
+
+.region-candidate .candidate-party {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.candidate-votes {
+  text-align: right;
+}
+
+.votes-count {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.votes-percentage {
+  display: block;
+  font-size: 0.75rem;
+  color: #60a5fa;
+}
+
+/* Scrollbar styling for region list */
+.region-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.region-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.region-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.region-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+@media (max-width: 768px) {
+  .regional-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .region-summary {
+    flex-wrap: wrap;
+  }
+
+  .region-leader {
+    order: 3;
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+}
