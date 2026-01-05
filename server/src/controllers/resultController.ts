@@ -725,7 +725,7 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
       }))
       .sort((a, b) => b.totalVotes - a.totalVotes); // Sort by votes descending
 
-    // Get total registered voters from election summaries
+    // Get total registered voters and invalid votes from election summaries
     const summaryTotals = await prisma.electionSummary.aggregate({
       where: {
         electionId,
@@ -733,11 +733,15 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
       },
       _sum: {
         registeredVoters: true,
-        totalVotes: true
+        totalVotes: true,
+        validVotes: true,
+        invalidVotes: true
       }
     });
 
     const totalRegisteredVoters = summaryTotals._sum.registeredVoters || 0;
+    const totalInvalidVotes = summaryTotals._sum.invalidVotes || 0;
+    const totalValidVotes = summaryTotals._sum.validVotes || totalVotesCast;
 
     // Calculate turnout
     const turnoutPercentage = totalRegisteredVoters > 0
@@ -746,6 +750,19 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
 
     // Determine winner (if any candidate has >50%)
     const winner = candidateResults.find(c => c.percentage > 50) || null;
+
+    // Calculate margin of victory (difference between 1st and 2nd place)
+    let marginOfVictory = null;
+    if (candidateResults.length >= 2) {
+      const first = candidateResults[0];
+      const second = candidateResults[1];
+      marginOfVictory = {
+        votes: first.totalVotes - second.totalVotes,
+        percentage: parseFloat((first.percentage - second.percentage).toFixed(2)),
+        leadingCandidate: first.candidateName,
+        runnerUp: second.candidateName
+      };
+    }
 
     // Count reporting areas
     const reportingAreasCount = await prisma.result.groupBy({
@@ -772,6 +789,11 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
         electoralLevel: election.electionType.electoralLevel
       },
       totalVotesCast,
+      totalValidVotes,
+      totalInvalidVotes,
+      invalidPercentage: totalVotesCast > 0
+        ? parseFloat(((totalInvalidVotes / (totalValidVotes + totalInvalidVotes)) * 100).toFixed(2))
+        : 0,
       totalRegisteredVoters,
       turnoutPercentage: parseFloat(turnoutPercentage.toFixed(2)),
       reportingAreas: reportingAreasCount.length,
@@ -780,6 +802,7 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
         ? parseFloat(((reportingAreasCount.length / totalAreasCount) * 100).toFixed(2))
         : 0,
       candidateResults,
+      marginOfVictory,
       winner: winner ? {
         candidateId: winner.candidateId,
         candidateName: winner.candidateName,

@@ -474,6 +474,102 @@
   color: #e2e8f0;
 }
 
+/* Invalid Votes Card */
+.total-card.invalid-votes {
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.total-card.invalid-votes .card-value {
+  background: linear-gradient(to right, #f87171, #ef4444);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.card-subvalue {
+  font-size: 1rem;
+  color: #94a3b8;
+  margin-top: 0.25rem;
+}
+
+/* Margin of Victory */
+.margin-of-victory {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  text-align: center;
+  animation: fadeInUp 0.6s ease-out 0.3s backwards;
+}
+
+.margin-label {
+  display: inline-block;
+  background: rgba(59, 130, 246, 0.2);
+  padding: 0.375rem 1rem;
+  border-radius: 2rem;
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  margin-bottom: 1rem;
+  color: #60a5fa;
+}
+
+.margin-stats {
+  display: flex;
+  justify-content: center;
+  gap: 3rem;
+  margin-bottom: 0.75rem;
+}
+
+.margin-votes,
+.margin-percentage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.margin-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #22c55e;
+}
+
+.margin-unit {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.margin-candidates {
+  font-size: 0.875rem;
+  color: #94a3b8;
+}
+
+/* Trend Indicators */
+.trend-indicator {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.trend-indicator.up {
+  color: #22c55e;
+}
+
+.trend-indicator.down {
+  color: #ef4444;
+}
+
+.trend-indicator svg {
+  width: 1rem;
+  height: 1rem;
+  margin-right: 0.25rem;
+}
+
 /* Responsive adjustments */
 @media (max-width: 640px) {
   .national-dashboard {
@@ -494,5 +590,30 @@
 
   .card-value {
     font-size: 2rem;
+  }
+
+  .margin-stats {
+    gap: 1.5rem;
+  }
+
+  .margin-value {
+    font-size: 1.5rem;
+  }
+}
+
+/* Live totals grid with 4 cards */
+.live-totals:has(.invalid-votes) {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 1024px) {
+  .live-totals:has(.invalid-votes) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .live-totals:has(.invalid-votes) {
+    grid-template-columns: 1fr;
   }
 }

@@ -166,11 +166,17 @@ Build a broadcast-quality GIS electoral results display system for Uganda 2026 e
 - [ ] Test on touch-screen devices
 
 ### Results Dashboard
-- [ ] Create national results summary component
-- [ ] Add live-updating vote totals
-- [ ] Implement progress bar (% reporting)
-- [ ] Display leading candidate with vote share
-- [ ] Add key statistics (turnout, total votes cast)
+- [x] Create national results summary component (NationalDashboard.tsx)
+- [x] Add live-updating vote totals (LiveTotals.tsx with WebSocket)
+- [x] Implement progress bar (% reporting) (ProgressIndicator.tsx)
+- [x] Display leading candidate with vote share (winner announcement)
+- [x] Add key statistics (turnout, total votes cast)
+
+#### Dashboard Enhancements
+- [ ] Add invalid/spoilt ballots count to vote statistics
+- [ ] Add margin of victory display (lead in votes/percentage)
+- [ ] Add trend indicators (up/down arrows when results change)
+- [ ] Add regional breakdown panel (view by sub-region within dashboard)
 
 ### Dramatic Animations
 - [ ] Implement fly-in animations for result reveals

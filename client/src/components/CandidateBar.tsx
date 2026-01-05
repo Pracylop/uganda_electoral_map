@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import { TrendingUp, TrendingDown } from 'lucide-react';
 
 interface CandidateBarProps {
   candidateName: string;
@@ -21,6 +22,36 @@ const CandidateBar: React.FC<CandidateBarProps> = ({
 }) => {
   const [animatedPercentage, setAnimatedPercentage] = useState(0);
   const [animatedVotes, setAnimatedVotes] = useState(0);
+  const [trend, setTrend] = useState<'up' | 'down' | null>(null);
+  const [trendValue, setTrendValue] = useState(0);
+  const prevVotes = useRef(totalVotes);
+  const trendTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  // Track vote changes and show trend indicator
+  useEffect(() => {
+    if (prevVotes.current !== totalVotes && prevVotes.current !== 0) {
+      const diff = totalVotes - prevVotes.current;
+      setTrendValue(Math.abs(diff));
+      setTrend(diff > 0 ? 'up' : 'down');
+
+      // Clear any existing timeout
+      if (trendTimeout.current) {
+        clearTimeout(trendTimeout.current);
+      }
+
+      // Hide trend after 5 seconds
+      trendTimeout.current = setTimeout(() => {
+        setTrend(null);
+      }, 5000);
+    }
+    prevVotes.current = totalVotes;
+
+    return () => {
+      if (trendTimeout.current) {
+        clearTimeout(trendTimeout.current);
+      }
+    };
+  }, [totalVotes]);
 
   useEffect(() => {
     // Animate the bar width
@@ -79,7 +110,15 @@ const CandidateBar: React.FC<CandidateBarProps> = ({
       </div>
 
       <div className="candidate-stats">
-        <div className="votes">{animatedVotes.toLocaleString()} {label}</div>
+        <div className="votes">
+          {animatedVotes.toLocaleString()} {label}
+          {trend && (
+            <span className={`trend-indicator ${trend}`}>
+              {trend === 'up' ? <TrendingUp /> : <TrendingDown />}
+              +{trendValue.toLocaleString()}
+            </span>
+          )}
+        </div>
         <div className="percentage">{percentage.toFixed(2)}%</div>
       </div>
     </div>

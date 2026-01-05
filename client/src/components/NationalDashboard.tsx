@@ -16,6 +16,13 @@ interface CandidateResult {
   percentage: number;
 }
 
+interface MarginOfVictory {
+  votes: number;
+  percentage: number;
+  leadingCandidate: string;
+  runnerUp: string;
+}
+
 interface PartySummary {
   partyId: number | null;
   partyName: string;
@@ -129,6 +136,26 @@ const NationalDashboard: React.FC<NationalDashboardProps> = ({ electionId, onClo
         </div>
       )}
 
+      {/* Margin of Victory (Presidential elections) */}
+      {!isMPElection && data.marginOfVictory && (
+        <div className="margin-of-victory">
+          <div className="margin-label">MARGIN OF VICTORY</div>
+          <div className="margin-stats">
+            <div className="margin-votes">
+              <span className="margin-value">+{data.marginOfVictory.votes.toLocaleString()}</span>
+              <span className="margin-unit">votes</span>
+            </div>
+            <div className="margin-percentage">
+              <span className="margin-value">+{data.marginOfVictory.percentage}%</span>
+              <span className="margin-unit">lead</span>
+            </div>
+          </div>
+          <div className="margin-candidates">
+            {data.marginOfVictory.leadingCandidate} leads {data.marginOfVictory.runnerUp}
+          </div>
+        </div>
+      )}
+
       <div className="dashboard-grid">
         <div className="totals-section">
           {isMPElection && partySummary ? (
@@ -153,6 +180,8 @@ const NationalDashboard: React.FC<NationalDashboardProps> = ({ electionId, onClo
               totalVotesCast={data.totalVotesCast}
               totalRegisteredVoters={data.totalRegisteredVoters}
               turnoutPercentage={data.turnoutPercentage}
+              totalInvalidVotes={data.totalInvalidVotes}
+              invalidPercentage={data.invalidPercentage}
             />
           )}
         </div>

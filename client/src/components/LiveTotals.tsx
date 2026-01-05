@@ -4,6 +4,8 @@ interface LiveTotalsProps {
   totalVotesCast: number;
   totalRegisteredVoters: number;
   turnoutPercentage: number;
+  totalInvalidVotes?: number;
+  invalidPercentage?: number;
 }
 
 // Custom hook for animated counting
@@ -36,11 +38,14 @@ const useCountUp = (end: number, duration: number = 2000) => {
 const LiveTotals: React.FC<LiveTotalsProps> = ({
   totalVotesCast,
   totalRegisteredVoters,
-  turnoutPercentage
+  turnoutPercentage,
+  totalInvalidVotes = 0,
+  invalidPercentage = 0
 }) => {
   const animatedVotesCast = useCountUp(totalVotesCast);
   const animatedRegistered = useCountUp(totalRegisteredVoters);
   const animatedTurnout = useCountUp(Math.round(turnoutPercentage * 100) / 100);
+  const animatedInvalid = useCountUp(totalInvalidVotes);
 
   return (
     <div className="live-totals">
@@ -60,6 +65,14 @@ const LiveTotals: React.FC<LiveTotalsProps> = ({
           {animatedTurnout.toFixed(2)}%
         </div>
       </div>
+
+      {totalInvalidVotes > 0 && (
+        <div className="total-card invalid-votes">
+          <div className="card-label">Invalid/Spoilt</div>
+          <div className="card-value">{animatedInvalid.toLocaleString()}</div>
+          <div className="card-subvalue">{invalidPercentage.toFixed(2)}%</div>
+        </div>
+      )}
     </div>
   );
 };
