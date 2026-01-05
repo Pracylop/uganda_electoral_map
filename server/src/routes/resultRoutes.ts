@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import {
   createResult,
+  updateResult,
+  deleteResult,
   submitResultForApproval,
   approveResult,
   rejectResult,
@@ -26,6 +28,12 @@ router.post('/', authenticate, authorize('operator', 'editor', 'admin'), createR
 
 // Submit for approval (Operator/Editor/Admin)
 router.post('/:id/submit', authenticate, authorize('operator', 'editor', 'admin'), submitResultForApproval);
+
+// Update result (Editor/Admin only - only draft/rejected results)
+router.put('/:id', authenticate, authorize('editor', 'admin'), updateResult);
+
+// Delete result (Admin only - only draft/rejected results)
+router.delete('/:id', authenticate, authorize('admin'), deleteResult);
 
 // Approve/Reject (Editor/Admin only)
 router.post('/:id/approve', authenticate, authorize('editor', 'admin'), approveResult);

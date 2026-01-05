@@ -1,5 +1,15 @@
 import { Request, Response } from 'express';
 import prisma from '../config/database';
+import { createAuditLog } from '../middleware/auditLog';
+
+// Helper to get client IP address
+const getClientIp = (req: Request): string => {
+  return (
+    (req.headers['x-forwarded-for'] as string)?.split(',')[0] ||
+    req.socket.remoteAddress ||
+    'unknown'
+  );
+};
 
 /**
  * Get all electoral issues with filters
@@ -362,6 +372,284 @@ export const getIssueStats = async (req: Request, res: Response): Promise<void> 
   } catch (error) {
     console.error('Error fetching issue stats:', error);
     res.status(500).json({ error: 'Failed to fetch issue statistics' });
+  }
+};
+
+/**
+ * Create a new electoral issue (Editor/Admin)
+ * POST /api/issues
+ */
+export const createIssue = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const {
+      electionId,
+      issueCategoryId,
+      districtId,
+      constituencyId,
+      subcountyId,
+      parishId,
+      date,
+      time,
+      summary,
+      description,
+      source,
+      location,
+      village,
+      latitude,
+      longitude,
+      severity,
+      status
+    } = req.body;
+
+    // Validate required fields
+    if (!issueCategoryId || !districtId || !date || !summary) {
+      res.status(400).json({
+        error: 'Category, district, date, and summary are required'
+      });
+      return;
+    }
+
+    // Verify category exists
+    const category = await prisma.issueCategory.findUnique({
+      where: { id: parseInt(issueCategoryId) }
+    });
+
+    if (!category) {
+      res.status(404).json({ error: 'Issue category not found' });
+      return;
+    }
+
+    // Verify district exists
+    const district = await prisma.administrativeUnit.findUnique({
+      where: { id: parseInt(districtId) }
+    });
+
+    if (!district) {
+      res.status(404).json({ error: 'District not found' });
+      return;
+    }
+
+    const issue = await prisma.electoralIssue.create({
+      data: {
+        electionId: electionId ? parseInt(electionId) : null,
+        issueCategoryId: parseInt(issueCategoryId),
+        districtId: parseInt(districtId),
+        constituencyId: constituencyId ? parseInt(constituencyId) : null,
+        subcountyId: subcountyId ? parseInt(subcountyId) : null,
+        parishId: parishId ? parseInt(parishId) : null,
+        date: new Date(date),
+        time: time || null,
+        summary,
+        description: description || null,
+        source: source || null,
+        location: location || null,
+        village: village || null,
+        latitude: latitude ? parseFloat(latitude) : null,
+        longitude: longitude ? parseFloat(longitude) : null,
+        severity: severity ? parseInt(severity) : category.severity,
+        status: status || 'reported'
+      },
+      include: {
+        issueCategory: { select: { name: true, code: true } },
+        district: { select: { name: true } }
+      }
+    });
+
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'CREATE_ISSUE',
+      'electoral_issue',
+      issue.id,
+      null,
+      {
+        category: issue.issueCategory.name,
+        district: issue.district?.name,
+        summary: issue.summary,
+        severity: issue.severity
+      },
+      getClientIp(req),
+      `Created issue: ${issue.issueCategory.name} in ${issue.district?.name}`
+    );
+
+    res.status(201).json({
+      message: 'Issue created successfully',
+      issue
+    });
+  } catch (error) {
+    console.error('Create issue error:', error);
+    res.status(500).json({ error: 'Failed to create electoral issue' });
+  }
+};
+
+/**
+ * Update an electoral issue (Editor/Admin)
+ * PUT /api/issues/:id
+ */
+export const updateIssue = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const issueId = parseInt(req.params.id);
+    const {
+      issueCategoryId,
+      districtId,
+      constituencyId,
+      subcountyId,
+      parishId,
+      date,
+      time,
+      summary,
+      description,
+      source,
+      location,
+      village,
+      latitude,
+      longitude,
+      severity,
+      status
+    } = req.body;
+
+    if (isNaN(issueId)) {
+      res.status(400).json({ error: 'Invalid issue ID' });
+      return;
+    }
+
+    // Fetch existing issue for audit log
+    const existingIssue = await prisma.electoralIssue.findUnique({
+      where: { id: issueId },
+      include: {
+        issueCategory: { select: { name: true } },
+        district: { select: { name: true } }
+      }
+    });
+
+    if (!existingIssue) {
+      res.status(404).json({ error: 'Issue not found' });
+      return;
+    }
+
+    // Build update data
+    const updateData: any = {};
+    if (issueCategoryId !== undefined) updateData.issueCategoryId = parseInt(issueCategoryId);
+    if (districtId !== undefined) updateData.districtId = parseInt(districtId);
+    if (constituencyId !== undefined) updateData.constituencyId = constituencyId ? parseInt(constituencyId) : null;
+    if (subcountyId !== undefined) updateData.subcountyId = subcountyId ? parseInt(subcountyId) : null;
+    if (parishId !== undefined) updateData.parishId = parishId ? parseInt(parishId) : null;
+    if (date !== undefined) updateData.date = new Date(date);
+    if (time !== undefined) updateData.time = time || null;
+    if (summary !== undefined) updateData.summary = summary;
+    if (description !== undefined) updateData.description = description || null;
+    if (source !== undefined) updateData.source = source || null;
+    if (location !== undefined) updateData.location = location || null;
+    if (village !== undefined) updateData.village = village || null;
+    if (latitude !== undefined) updateData.latitude = latitude ? parseFloat(latitude) : null;
+    if (longitude !== undefined) updateData.longitude = longitude ? parseFloat(longitude) : null;
+    if (severity !== undefined) updateData.severity = parseInt(severity);
+    if (status !== undefined) updateData.status = status;
+
+    const issue = await prisma.electoralIssue.update({
+      where: { id: issueId },
+      data: updateData,
+      include: {
+        issueCategory: { select: { name: true, code: true } },
+        district: { select: { name: true } }
+      }
+    });
+
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'UPDATE_ISSUE',
+      'electoral_issue',
+      issue.id,
+      {
+        category: existingIssue.issueCategory.name,
+        district: existingIssue.district?.name,
+        summary: existingIssue.summary,
+        status: existingIssue.status
+      },
+      {
+        category: issue.issueCategory.name,
+        district: issue.district?.name,
+        summary: issue.summary,
+        status: issue.status
+      },
+      getClientIp(req),
+      `Updated issue: ${issue.issueCategory.name} in ${issue.district?.name}`
+    );
+
+    res.json({
+      message: 'Issue updated successfully',
+      issue
+    });
+  } catch (error: any) {
+    if (error.code === 'P2025') {
+      res.status(404).json({ error: 'Issue not found' });
+      return;
+    }
+    console.error('Update issue error:', error);
+    res.status(500).json({ error: 'Failed to update electoral issue' });
+  }
+};
+
+/**
+ * Delete an electoral issue (Admin only)
+ * DELETE /api/issues/:id
+ */
+export const deleteIssue = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const issueId = parseInt(req.params.id);
+
+    if (isNaN(issueId)) {
+      res.status(400).json({ error: 'Invalid issue ID' });
+      return;
+    }
+
+    // Fetch existing issue for audit log before deletion
+    const existingIssue = await prisma.electoralIssue.findUnique({
+      where: { id: issueId },
+      include: {
+        issueCategory: { select: { name: true } },
+        district: { select: { name: true } }
+      }
+    });
+
+    if (!existingIssue) {
+      res.status(404).json({ error: 'Issue not found' });
+      return;
+    }
+
+    await prisma.electoralIssue.delete({
+      where: { id: issueId }
+    });
+
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'DELETE_ISSUE',
+      'electoral_issue',
+      issueId,
+      {
+        category: existingIssue.issueCategory.name,
+        district: existingIssue.district?.name,
+        summary: existingIssue.summary,
+        date: existingIssue.date
+      },
+      null,
+      getClientIp(req),
+      `Deleted issue: ${existingIssue.issueCategory.name} in ${existingIssue.district?.name}`
+    );
+
+    res.json({ message: 'Issue deleted successfully' });
+  } catch (error: any) {
+    if (error.code === 'P2025') {
+      res.status(404).json({ error: 'Issue not found' });
+      return;
+    }
+    console.error('Delete issue error:', error);
+    res.status(500).json({ error: 'Failed to delete electoral issue' });
   }
 };
 

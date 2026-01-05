@@ -409,6 +409,160 @@ export const rejectResult = async (req: Request, res: Response): Promise<void> =
   }
 };
 
+// Update result (Editor/Admin only - can only update draft or rejected results)
+export const updateResult = async (req: Request, res: Response): Promise<void> => {
+  const ipAddress = getClientIp(req);
+
+  try {
+    const resultId = parseInt(req.params.id);
+    const { votes } = req.body;
+
+    if (isNaN(resultId)) {
+      res.status(400).json({ error: 'Invalid result ID' });
+      return;
+    }
+
+    if (votes === undefined) {
+      res.status(400).json({ error: 'Votes count is required' });
+      return;
+    }
+
+    // Fetch existing result
+    const existingResult = await prisma.result.findUnique({
+      where: { id: resultId },
+      include: {
+        candidate: {
+          include: { person: { select: { fullName: true } } }
+        },
+        adminUnit: { select: { name: true } }
+      }
+    });
+
+    if (!existingResult) {
+      res.status(404).json({ error: 'Result not found' });
+      return;
+    }
+
+    // Can only update draft or rejected results
+    if (!['draft', 'rejected'].includes(existingResult.status)) {
+      res.status(400).json({
+        error: 'Only draft or rejected results can be updated',
+        currentStatus: existingResult.status
+      });
+      return;
+    }
+
+    const result = await prisma.result.update({
+      where: { id: resultId },
+      data: {
+        votes: parseInt(votes),
+        status: 'draft', // Reset to draft if it was rejected
+        rejectionComment: null
+      },
+      include: {
+        election: true,
+        candidate: {
+          include: {
+            person: { select: { fullName: true } },
+            party: { select: { abbreviation: true, color: true } }
+          }
+        },
+        adminUnit: {
+          select: { id: true, name: true, code: true, level: true }
+        }
+      }
+    });
+
+    // Log the action
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'UPDATE_RESULT',
+      'result',
+      result.id,
+      { votes: existingResult.votes, status: existingResult.status },
+      { votes: result.votes, status: result.status },
+      ipAddress,
+      `Updated result for ${existingResult.candidate.person.fullName} in ${existingResult.adminUnit.name}: ${existingResult.votes} → ${result.votes} votes`
+    );
+
+    res.json({
+      message: 'Result updated successfully',
+      result
+    });
+  } catch (error) {
+    console.error('Update result error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Delete result (Admin only - can only delete draft or rejected results)
+export const deleteResult = async (req: Request, res: Response): Promise<void> => {
+  const ipAddress = getClientIp(req);
+
+  try {
+    const resultId = parseInt(req.params.id);
+
+    if (isNaN(resultId)) {
+      res.status(400).json({ error: 'Invalid result ID' });
+      return;
+    }
+
+    // Fetch existing result before deletion
+    const existingResult = await prisma.result.findUnique({
+      where: { id: resultId },
+      include: {
+        candidate: {
+          include: { person: { select: { fullName: true } } }
+        },
+        adminUnit: { select: { name: true } },
+        election: { select: { name: true } }
+      }
+    });
+
+    if (!existingResult) {
+      res.status(404).json({ error: 'Result not found' });
+      return;
+    }
+
+    // Can only delete draft or rejected results (not pending or approved)
+    if (!['draft', 'rejected'].includes(existingResult.status)) {
+      res.status(400).json({
+        error: 'Only draft or rejected results can be deleted',
+        currentStatus: existingResult.status
+      });
+      return;
+    }
+
+    await prisma.result.delete({
+      where: { id: resultId }
+    });
+
+    // Log the action
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'DELETE_RESULT',
+      'result',
+      resultId,
+      {
+        candidateName: existingResult.candidate.person.fullName,
+        adminUnit: existingResult.adminUnit.name,
+        votes: existingResult.votes,
+        status: existingResult.status
+      },
+      null,
+      ipAddress,
+      `Deleted result for ${existingResult.candidate.person.fullName} in ${existingResult.adminUnit.name} (${existingResult.votes} votes)`
+    );
+
+    res.json({ message: 'Result deleted successfully' });
+  } catch (error) {
+    console.error('Delete result error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 // Get results by election (all statuses for Editor/Admin, only approved for others)
 export const getResultsByElection = async (req: Request, res: Response): Promise<void> => {
   try {

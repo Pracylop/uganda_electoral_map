@@ -5,9 +5,12 @@ import {
   getIssuesGeoJSON,
   getIssuesChoropleth,
   getCategories,
-  getIssueStats
+  getIssueStats,
+  createIssue,
+  updateIssue,
+  deleteIssue
 } from '../controllers/issueController';
-import { authenticate } from '../middleware/auth';
+import { authenticate, authorize } from '../middleware/auth';
 
 const router = Router();
 
@@ -28,5 +31,14 @@ router.get('/', authenticate, getIssues);
 
 // Get single issue by ID
 router.get('/:id', authenticate, getIssueById);
+
+// Create issue (Editor/Admin only)
+router.post('/', authenticate, authorize('editor', 'admin'), createIssue);
+
+// Update issue (Editor/Admin only)
+router.put('/:id', authenticate, authorize('editor', 'admin'), updateIssue);
+
+// Delete issue (Admin only)
+router.delete('/:id', authenticate, authorize('admin'), deleteIssue);
 
 export default router;
