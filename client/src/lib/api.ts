@@ -56,6 +56,28 @@ export const api = {
       createdAt: string;
     }>('/api/auth/me'),
 
+  updateProfile: (data: { fullName: string }) =>
+    apiRequest<{
+      message: string;
+      user: {
+        id: number;
+        username: string;
+        fullName: string;
+        role: string;
+        isActive: boolean;
+        createdAt: string;
+      };
+    }>('/api/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  changePassword: (data: { currentPassword: string; newPassword: string }) =>
+    apiRequest<{ message: string }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   // User management endpoints
   getUsers: () =>
     apiRequest<
@@ -732,5 +754,82 @@ export const api = {
         geometry: GeoJSON.Geometry;
       }>;
     }>(`/api/demographics/geojson${query}`);
+  },
+
+  // Audit Log API
+  getAuditLogs: (params?: {
+    userId?: number;
+    actionType?: string;
+    entityType?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.userId) searchParams.append('userId', params.userId.toString());
+    if (params?.actionType) searchParams.append('actionType', params.actionType);
+    if (params?.entityType) searchParams.append('entityType', params.entityType);
+    if (params?.startDate) searchParams.append('startDate', params.startDate);
+    if (params?.endDate) searchParams.append('endDate', params.endDate);
+    if (params?.limit) searchParams.append('limit', params.limit.toString());
+    if (params?.offset) searchParams.append('offset', params.offset.toString());
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return apiRequest<{
+      logs: Array<{
+        id: number;
+        timestamp: string;
+        userId: number;
+        userRole: string;
+        actionType: string;
+        entityType: string;
+        entityId: number | null;
+        oldValue: any;
+        newValue: any;
+        ipAddress: string | null;
+        comment: string | null;
+        user: { id: number; username: string; fullName: string };
+      }>;
+      total: number;
+      limit: number;
+      offset: number;
+    }>(`/api/audit${query}`);
+  },
+
+  getAuditActionTypes: () =>
+    apiRequest<string[]>('/api/audit/action-types'),
+
+  getAuditEntityTypes: () =>
+    apiRequest<string[]>('/api/audit/entity-types'),
+
+  getAuditStats: () =>
+    apiRequest<{
+      total: number;
+      byActionType: Array<{ actionType: string; count: number }>;
+      byUser: Array<{ userId: number; username: string; fullName: string; count: number }>;
+      recentActivity: Array<{
+        id: number;
+        timestamp: string;
+        actionType: string;
+        entityType: string;
+        user: { username: string; fullName: string };
+      }>;
+    }>('/api/audit/stats'),
+
+  exportAuditLogs: (params?: {
+    userId?: number;
+    actionType?: string;
+    entityType?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.userId) searchParams.append('userId', params.userId.toString());
+    if (params?.actionType) searchParams.append('actionType', params.actionType);
+    if (params?.entityType) searchParams.append('entityType', params.entityType);
+    if (params?.startDate) searchParams.append('startDate', params.startDate);
+    if (params?.endDate) searchParams.append('endDate', params.endDate);
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return `/api/audit/export${query}`;
   },
 };

@@ -87,12 +87,20 @@ export function Layout({ children }: LayoutProps) {
                       Approval Queue
                     </Link>
                     {user?.role === 'admin' && (
-                      <Link
-                        to="/users"
-                        className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
-                      >
-                        User Management
-                      </Link>
+                      <>
+                        <Link
+                          to="/users"
+                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+                        >
+                          User Management
+                        </Link>
+                        <Link
+                          to="/audit-log"
+                          className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+                        >
+                          Audit Log
+                        </Link>
+                      </>
                     )}
                   </div>
                 )}
@@ -117,12 +125,18 @@ export function Layout({ children }: LayoutProps) {
 
             {/* User Info & Logout */}
             <div className="flex items-center gap-2 pl-3 border-l border-gray-700">
-              <span className="text-xs text-gray-400 hidden lg:block">
-                {user?.fullName}
-              </span>
-              <span className="px-2 py-0.5 bg-gray-700 text-xs text-gray-300 rounded">
-                {user?.role}
-              </span>
+              <Link
+                to="/profile"
+                className="flex items-center gap-2 hover:bg-gray-700 px-2 py-1 rounded transition-colors"
+                title="View Profile"
+              >
+                <span className="text-xs text-gray-400 hidden lg:block hover:text-white">
+                  {user?.fullName}
+                </span>
+                <span className="px-2 py-0.5 bg-gray-700 text-xs text-gray-300 rounded">
+                  {user?.role}
+                </span>
+              </Link>
               <button
                 onClick={handleLogout}
                 className="p-1.5 rounded hover:bg-red-600 text-gray-400 hover:text-white transition-colors"

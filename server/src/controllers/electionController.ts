@@ -1,5 +1,15 @@
 import { Request, Response } from 'express';
 import prisma from '../config/database';
+import { createAuditLog } from '../middleware/auditLog';
+
+// Helper to get client IP address
+const getClientIp = (req: Request): string => {
+  return (
+    (req.headers['x-forwarded-for'] as string)?.split(',')[0] ||
+    req.socket.remoteAddress ||
+    'unknown'
+  );
+};
 
 // Get all elections
 export const getAllElections = async (req: Request, res: Response): Promise<void> => {
@@ -136,6 +146,19 @@ export const createElection = async (req: Request, res: Response): Promise<void>
       }
     });
 
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'CREATE_ELECTION',
+      'election',
+      election.id,
+      null,
+      { name: election.name, year: election.year, type: election.electionType.name, isActive: election.isActive },
+      getClientIp(req),
+      `Created election: ${election.name} (${election.electionType.name})`
+    );
+
     res.status(201).json({
       message: 'Election created successfully',
       election
@@ -154,6 +177,17 @@ export const updateElection = async (req: Request, res: Response): Promise<void>
 
     if (isNaN(electionId)) {
       res.status(400).json({ error: 'Invalid election ID' });
+      return;
+    }
+
+    // Fetch old election data for audit log
+    const oldElection = await prisma.election.findUnique({
+      where: { id: electionId },
+      include: { electionType: true }
+    });
+
+    if (!oldElection) {
+      res.status(404).json({ error: 'Election not found' });
       return;
     }
 
@@ -182,6 +216,28 @@ export const updateElection = async (req: Request, res: Response): Promise<void>
       }
     });
 
+    // Build change description
+    const changes: string[] = [];
+    if (name !== undefined && name !== oldElection.name) changes.push('name');
+    if (year !== undefined && parseInt(year) !== oldElection.year) changes.push('year');
+    if (electionDate !== undefined) changes.push('date');
+    if (isActive !== undefined && isActive !== oldElection.isActive) {
+      changes.push(isActive ? 'activated' : 'deactivated');
+    }
+
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'UPDATE_ELECTION',
+      'election',
+      election.id,
+      { name: oldElection.name, year: oldElection.year, isActive: oldElection.isActive },
+      { name: election.name, year: election.year, isActive: election.isActive },
+      getClientIp(req),
+      `Updated election ${election.name}: ${changes.join(', ') || 'no changes'}`
+    );
+
     res.json({
       message: 'Election updated successfully',
       election
@@ -206,9 +262,33 @@ export const deleteElection = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    // Fetch election data for audit log before deletion
+    const election = await prisma.election.findUnique({
+      where: { id: electionId },
+      include: { electionType: true }
+    });
+
+    if (!election) {
+      res.status(404).json({ error: 'Election not found' });
+      return;
+    }
+
     await prisma.election.delete({
       where: { id: electionId }
     });
+
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'DELETE_ELECTION',
+      'election',
+      electionId,
+      { name: election.name, year: election.year, type: election.electionType.name },
+      null,
+      getClientIp(req),
+      `Deleted election: ${election.name} (${election.year})`
+    );
 
     res.json({ message: 'Election deleted successfully' });
   } catch (error: any) {

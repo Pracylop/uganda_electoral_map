@@ -6,6 +6,7 @@ export interface User {
   username: string;
   fullName: string;
   role: string;
+  createdAt: string;
 }
 
 interface AuthState {
@@ -20,6 +21,7 @@ interface AuthState {
   logout: () => void;
   checkAuth: () => Promise<void>;
   clearError: () => void;
+  setUser: (user: User) => void;
 }
 
 // Check if there's a token - if so, we need to verify it before deciding auth state
@@ -78,6 +80,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           username: user.username,
           fullName: user.fullName,
           role: user.role,
+          createdAt: user.createdAt,
         },
         token,
         isAuthenticated: true,
@@ -95,4 +98,6 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  setUser: (user: User) => set({ user }),
 }));

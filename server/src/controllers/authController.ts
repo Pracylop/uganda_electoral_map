@@ -121,3 +121,120 @@ export const me = async (req: Request, res: Response): Promise<void> => {
 export const logout = async (req: Request, res: Response): Promise<void> => {
   res.json({ message: 'Logout successful' });
 };
+
+// Update own profile (name only)
+export const updateProfile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const { fullName } = req.body;
+
+    if (!fullName || fullName.trim().length === 0) {
+      res.status(400).json({ error: 'Full name is required' });
+      return;
+    }
+
+    const user = await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { fullName: fullName.trim() },
+      select: {
+        id: true,
+        username: true,
+        fullName: true,
+        role: true,
+        isActive: true,
+        createdAt: true
+      }
+    });
+
+    // Log profile update
+    await createAuditLog(
+      req.user.userId,
+      req.user.role,
+      'PROFILE_UPDATE',
+      'user',
+      req.user.userId,
+      null,
+      { fullName: user.fullName },
+      getClientIp(req),
+      'Profile updated'
+    );
+
+    res.json({
+      message: 'Profile updated successfully',
+      user
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Change own password
+export const changePassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ error: 'Current password and new password are required' });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      res.status(400).json({ error: 'New password must be at least 6 characters' });
+      return;
+    }
+
+    // Get current user with password
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId }
+    });
+
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    // Verify current password
+    const isValidPassword = await comparePassword(currentPassword, user.passwordHash);
+
+    if (!isValidPassword) {
+      res.status(401).json({ error: 'Current password is incorrect' });
+      return;
+    }
+
+    // Hash and update new password
+    const newPasswordHash = await hashPassword(newPassword);
+
+    await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { passwordHash: newPasswordHash }
+    });
+
+    // Log password change
+    await createAuditLog(
+      req.user.userId,
+      req.user.role,
+      'PASSWORD_CHANGE',
+      'user',
+      req.user.userId,
+      null,
+      null,
+      getClientIp(req),
+      'Password changed'
+    );
+
+    res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};

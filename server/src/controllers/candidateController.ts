@@ -1,5 +1,15 @@
 import { Request, Response } from 'express';
 import prisma from '../config/database';
+import { createAuditLog } from '../middleware/auditLog';
+
+// Helper to get client IP address
+const getClientIp = (req: Request): string => {
+  return (
+    (req.headers['x-forwarded-for'] as string)?.split(',')[0] ||
+    req.socket.remoteAddress ||
+    'unknown'
+  );
+};
 
 // Create candidate (Editor/Admin only)
 export const createCandidate = async (req: Request, res: Response): Promise<void> => {
@@ -59,6 +69,23 @@ export const createCandidate = async (req: Request, res: Response): Promise<void
       }
     });
 
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'CREATE_CANDIDATE',
+      'candidate',
+      candidate.id,
+      null,
+      {
+        personName: candidate.person.fullName,
+        partyName: candidate.party?.name || 'Independent',
+        electionName: candidate.election.name
+      },
+      getClientIp(req),
+      `Created candidate: ${candidate.person.fullName} for ${candidate.election.name}`
+    );
+
     res.status(201).json({
       message: 'Candidate created successfully',
       candidate
@@ -84,6 +111,21 @@ export const updateCandidate = async (req: Request, res: Response): Promise<void
       return;
     }
 
+    // Fetch old candidate data for audit log
+    const oldCandidate = await prisma.candidate.findUnique({
+      where: { id: candidateId },
+      include: {
+        person: { select: { fullName: true } },
+        party: { select: { name: true } },
+        election: { select: { name: true } }
+      }
+    });
+
+    if (!oldCandidate) {
+      res.status(404).json({ error: 'Candidate not found' });
+      return;
+    }
+
     const updateData: any = {};
     if (partyId !== undefined) updateData.partyId = partyId ? parseInt(partyId) : null;
     if (electoralAreaId !== undefined) updateData.electoralAreaId = electoralAreaId ? parseInt(electoralAreaId) : null;
@@ -100,6 +142,27 @@ export const updateCandidate = async (req: Request, res: Response): Promise<void
         election: { select: { name: true, year: true } }
       }
     });
+
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'UPDATE_CANDIDATE',
+      'candidate',
+      candidate.id,
+      {
+        partyName: oldCandidate.party?.name || 'Independent',
+        ballotOrder: oldCandidate.ballotOrder,
+        isIndependent: oldCandidate.isIndependent
+      },
+      {
+        partyName: candidate.party?.name || 'Independent',
+        ballotOrder: candidate.ballotOrder,
+        isIndependent: candidate.isIndependent
+      },
+      getClientIp(req),
+      `Updated candidate: ${candidate.person.fullName}`
+    );
 
     res.json({
       message: 'Candidate updated successfully',
@@ -125,9 +188,41 @@ export const deleteCandidate = async (req: Request, res: Response): Promise<void
       return;
     }
 
+    // Fetch candidate data for audit log before deletion
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: candidateId },
+      include: {
+        person: { select: { fullName: true } },
+        party: { select: { name: true } },
+        election: { select: { name: true } }
+      }
+    });
+
+    if (!candidate) {
+      res.status(404).json({ error: 'Candidate not found' });
+      return;
+    }
+
     await prisma.candidate.delete({
       where: { id: candidateId }
     });
+
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'DELETE_CANDIDATE',
+      'candidate',
+      candidateId,
+      {
+        personName: candidate.person.fullName,
+        partyName: candidate.party?.name || 'Independent',
+        electionName: candidate.election.name
+      },
+      null,
+      getClientIp(req),
+      `Deleted candidate: ${candidate.person.fullName} from ${candidate.election.name}`
+    );
 
     res.json({ message: 'Candidate deleted successfully' });
   } catch (error: any) {

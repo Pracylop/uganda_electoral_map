@@ -11,6 +11,7 @@ import referenceRoutes from './routes/referenceRoutes';
 import issueRoutes from './routes/issueRoutes';
 import pollingStationRoutes from './routes/pollingStationRoutes';
 import demographicsRoutes from './routes/demographicsRoutes';
+import auditRoutes from './routes/auditRoutes';
 import { websocketService } from './services/websocketService';
 
 // Load environment variables
@@ -44,6 +45,7 @@ app.use('/api/reference', referenceRoutes);
 app.use('/api/issues', issueRoutes);
 app.use('/api/polling-stations', pollingStationRoutes);
 app.use('/api/demographics', demographicsRoutes);
+app.use('/api/audit', auditRoutes);
 
 // Start server
 app.listen(PORT, () => {

@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { UserManagement } from './pages/UserManagement';
+import { AuditLogViewer } from './pages/AuditLogViewer';
+import { Profile } from './pages/Profile';
 import { Elections } from './pages/Elections';
 import { ElectionResults } from './pages/ElectionResults';
 import { ElectionCandidates } from './pages/ElectionCandidates';
@@ -36,6 +38,26 @@ function App() {
             <ProtectedRoute requiredRole={['admin']}>
               <Layout>
                 <UserManagement />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/audit-log"
+          element={
+            <ProtectedRoute requiredRole={['admin']}>
+              <Layout>
+                <AuditLogViewer />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <Profile />
               </Layout>
             </ProtectedRoute>
           }

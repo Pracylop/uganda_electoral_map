@@ -337,10 +337,86 @@ Build a broadcast-quality GIS electoral results display system for Uganda 2026 e
 - Set up audit logging middleware
 
 ### Phase 2 Review
-- Date completed:
+- Date completed: January 5, 2026 (partial)
 - Changes made:
-- Issues encountered:
-- Next steps:
+  - Added Audit Log Viewer UI (admin-only)
+  - Added User Profile page with password change
+  - Authentication, RBAC, WebSocket all functional
+- Issues encountered: None
+- Next steps: Complete audit logging coverage (see plan below)
+
+---
+
+## Audit Logging Expansion Plan
+
+### Current Status
+**Currently Audited (2 controllers):**
+| Controller | Actions Logged |
+|------------|----------------|
+| authController | LOGIN, PROFILE_UPDATE, PASSWORD_CHANGE |
+| resultController | CREATE_RESULT, SUBMIT_RESULT, APPROVE_RESULT, REJECT_RESULT |
+
+**Missing Audit Logging (4 controllers):**
+| Controller | Actions Needed |
+|------------|----------------|
+| userController | CREATE_USER, UPDATE_USER, DELETE_USER, DEACTIVATE_USER |
+| electionController | CREATE_ELECTION, UPDATE_ELECTION, DELETE_ELECTION, ACTIVATE_ELECTION |
+| candidateController | CREATE_CANDIDATE, UPDATE_CANDIDATE, DELETE_CANDIDATE |
+| issueController | CREATE_ISSUE, UPDATE_ISSUE |
+
+### Implementation Tasks
+
+#### Priority 1: User Management Auditing (Critical for Security)
+- [x] 1.1 Import `createAuditLog` in userController.ts
+- [x] 1.2 Add helper function `getClientIp` to userController.ts
+- [x] 1.3 Add CREATE_USER audit log to `createUser` function
+- [x] 1.4 Add UPDATE_USER audit log to `updateUser` function (capture old values)
+- [x] 1.5 Add DELETE_USER audit log to `deleteUser` function
+- [x] 1.6 Test user management audit logs appear in Audit Log Viewer
+
+#### Priority 2: Election Data Auditing (Critical for Electoral Integrity)
+- [x] 2.1 Import `createAuditLog` in electionController.ts
+- [x] 2.2 Add helper function `getClientIp` to electionController.ts
+- [x] 2.3 Add CREATE_ELECTION audit log to `createElection` function
+- [x] 2.4 Add UPDATE_ELECTION audit log to `updateElection` function (capture old values)
+- [x] 2.5 Add DELETE_ELECTION audit log to `deleteElection` function
+- [x] 2.6 Test election audit logs appear in Audit Log Viewer
+
+#### Priority 3: Candidate Auditing (Important for Transparency)
+- [x] 3.1 Import `createAuditLog` in candidateController.ts
+- [x] 3.2 Add helper function `getClientIp` to candidateController.ts
+- [x] 3.3 Add CREATE_CANDIDATE audit log to `createCandidate` function
+- [x] 3.4 Add UPDATE_CANDIDATE audit log to `updateCandidate` function (capture old values)
+- [x] 3.5 Add DELETE_CANDIDATE audit log to `deleteCandidate` function
+- [x] 3.6 Test candidate audit logs appear in Audit Log Viewer
+
+#### Priority 4: Issue Tracking Auditing (Accountability)
+- [x] 4.1-4.5 SKIPPED - issueController has no CRUD operations (read-only data)
+
+#### Final Verification
+- [ ] 5.1 Verify all action types appear in Audit Log filter dropdown
+- [ ] 5.2 Verify CSV export includes all new action types
+- [ ] 5.3 Commit and push changes to GitHub
+
+### Implementation Pattern
+Each audit log entry should capture:
+1. **userId** - Who performed the action
+2. **userRole** - Role at time of action
+3. **actionType** - Standardized action name (e.g., CREATE_USER)
+4. **entityType** - Type of entity affected (e.g., user, election)
+5. **entityId** - ID of affected entity
+6. **oldValue** - Previous state (for updates)
+7. **newValue** - New state (for creates/updates)
+8. **ipAddress** - Client IP for traceability
+9. **comment** - Human-readable description
+
+### Estimated Effort
+- Priority 1 (User Management): ~30 minutes
+- Priority 2 (Elections): ~30 minutes
+- Priority 3 (Candidates): ~20 minutes
+- Priority 4 (Issues): ~15 minutes
+
+---
 
 ### Phase 3 Review
 - Date completed:

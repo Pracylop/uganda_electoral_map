@@ -1,6 +1,16 @@
 import { Request, Response } from 'express';
 import prisma from '../config/database';
 import { hashPassword } from '../utils/auth';
+import { createAuditLog } from '../middleware/auditLog';
+
+// Helper to get client IP address
+const getClientIp = (req: Request): string => {
+  return (
+    (req.headers['x-forwarded-for'] as string)?.split(',')[0] ||
+    req.socket.remoteAddress ||
+    'unknown'
+  );
+};
 
 // Get all users (Admin only)
 export const getAllUsers = async (req: Request, res: Response): Promise<void> => {
@@ -108,6 +118,19 @@ export const createUser = async (req: Request, res: Response): Promise<void> => 
       }
     });
 
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'CREATE_USER',
+      'user',
+      user.id,
+      null,
+      { username: user.username, fullName: user.fullName, role: user.role },
+      getClientIp(req),
+      `Created user: ${user.username} (${user.role})`
+    );
+
     res.status(201).json({
       message: 'User created successfully',
       user
@@ -126,6 +149,23 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
 
     if (isNaN(userId)) {
       res.status(400).json({ error: 'Invalid user ID' });
+      return;
+    }
+
+    // Fetch old user data for audit log
+    const oldUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        username: true,
+        fullName: true,
+        role: true,
+        isActive: true
+      }
+    });
+
+    if (!oldUser) {
+      res.status(404).json({ error: 'User not found' });
       return;
     }
 
@@ -161,6 +201,26 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
         createdAt: true
       }
     });
+
+    // Build change description
+    const changes: string[] = [];
+    if (fullName !== undefined && fullName !== oldUser.fullName) changes.push('name');
+    if (role !== undefined && role !== oldUser.role) changes.push(`role: ${oldUser.role} → ${role}`);
+    if (isActive !== undefined && isActive !== oldUser.isActive) changes.push(isActive ? 'activated' : 'deactivated');
+    if (password) changes.push('password');
+
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'UPDATE_USER',
+      'user',
+      user.id,
+      { fullName: oldUser.fullName, role: oldUser.role, isActive: oldUser.isActive },
+      { fullName: user.fullName, role: user.role, isActive: user.isActive, passwordChanged: !!password },
+      getClientIp(req),
+      `Updated user ${user.username}: ${changes.join(', ') || 'no changes'}`
+    );
 
     res.json({
       message: 'User updated successfully',
@@ -204,6 +264,19 @@ export const deleteUser = async (req: Request, res: Response): Promise<void> => 
         isActive: true
       }
     });
+
+    // Audit log
+    await createAuditLog(
+      req.user!.userId,
+      req.user!.role,
+      'DELETE_USER',
+      'user',
+      user.id,
+      { isActive: true },
+      { isActive: false },
+      getClientIp(req),
+      `Deactivated user: ${user.username} (${user.role})`
+    );
 
     res.json({
       message: 'User deactivated successfully',
