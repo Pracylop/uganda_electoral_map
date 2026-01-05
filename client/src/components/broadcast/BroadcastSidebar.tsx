@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   GitCompare,
   AlertTriangle,
+  Users,
   ArrowLeft,
   ArrowRight,
   Search,
@@ -98,6 +99,13 @@ export function BroadcastSidebar({ onExit, canDrillUp }: BroadcastSidebarProps) 
           onClick={() => setViewMode('issues')}
           active={viewMode === 'issues'}
           shortcut="I"
+        />
+        <IconButton
+          icon={Users}
+          label="Demographics"
+          onClick={() => setViewMode('demographics')}
+          active={viewMode === 'demographics'}
+          shortcut="G"
         />
       </div>
 

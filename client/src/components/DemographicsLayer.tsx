@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import { api } from '../lib/api';
 
@@ -9,9 +9,12 @@ interface DemographicsLayerProps {
   visible: boolean;
   level?: number;
   metric?: DemographicMetric;
+  parentId?: number | null;
+  onDistrictSelect?: (districtId: number, districtName: string) => void;
+  onScaleChange?: (scale: { stops: number[]; colors: string[] }) => void;
 }
 
-// Color scales for different metrics
+// Base color scales (colors only - stops are calculated dynamically)
 const colorScales: Record<DemographicMetric, { stops: number[]; colors: string[] }> = {
   population: {
     stops: [0, 100000, 300000, 500000, 1000000, 2000000],
@@ -27,12 +30,153 @@ const colorScales: Record<DemographicMetric, { stops: number[]; colors: string[]
   },
 };
 
-export function DemographicsLayer({ map, visible, level = 2, metric = 'population' }: DemographicsLayerProps) {
+// ============================================================================
+// Helper Functions (matching Broadcast version)
+// ============================================================================
+
+// Cache for GeoJSON data by level
+const dataCache = new Map<string, { geojson: GeoJSON.FeatureCollection; bbox?: [number, number, number, number] }>();
+
+function getLevelCacheKey(level: number): string {
+  return `demographics-level-${level}`;
+}
+
+// Calculate min/max values from features for a given property
+function calculateDataRange(features: GeoJSON.Feature[], property: string): { min: number; max: number } {
+  let min = Infinity;
+  let max = -Infinity;
+
+  features.forEach(f => {
+    const value = f.properties?.[property];
+    if (typeof value === 'number' && value > 0) {
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+  });
+
+  if (min === Infinity) min = 0;
+  if (max === -Infinity) max = 100;
+  if (min === max) max = min + 1;
+
+  return { min, max };
+}
+
+// Generate evenly spaced stops between min and max
+function generateDynamicStops(min: number, max: number, numStops: number): number[] {
+  const range = max - min;
+  return Array.from({ length: numStops }, (_, i) =>
+    Math.round(min + (range * i) / (numStops - 1))
+  );
+}
+
+// Filter features by parentId
+function filterFeaturesByParent(geojson: GeoJSON.FeatureCollection, parentId: number): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: geojson.features.filter(f => f.properties?.parentId === parentId),
+  };
+}
+
+// Point-in-polygon check using ray casting algorithm
+function pointInPolygon(point: [number, number], geometry: GeoJSON.Geometry): boolean {
+  const [x, y] = point;
+
+  try {
+    if (geometry.type === 'MultiPolygon') {
+      return geometry.coordinates.some(polygonCoords => {
+        const ring = polygonCoords?.[0];
+        if (!ring || !Array.isArray(ring) || ring.length < 3) return false;
+        return pointInRing(x, y, ring);
+      });
+    } else if (geometry.type === 'Polygon') {
+      const ring = geometry.coordinates?.[0];
+      if (!ring || !Array.isArray(ring) || ring.length < 3) return false;
+      return pointInRing(x, y, ring);
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+function pointInRing(x: number, y: number, ring: number[][]): boolean {
+  if (!ring || ring.length < 3) return false;
+
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const coord_i = ring[i];
+    const coord_j = ring[j];
+    if (!coord_i || !coord_j) continue;
+
+    const xi = coord_i[0], yi = coord_i[1];
+    const xj = coord_j[0], yj = coord_j[1];
+
+    if (xi === undefined || yi === undefined || xj === undefined || yj === undefined) continue;
+
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Format large numbers compactly
+function formatCompactNumber(n: number): string {
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return n.toString();
+}
+
+export function DemographicsLayer({
+  map,
+  visible,
+  level = 2,
+  metric = 'population',
+  parentId = null,
+  onDistrictSelect,
+  onScaleChange,
+}: DemographicsLayerProps) {
+  // Ref to track if basemap click handler is registered
+  const basemapHandlerRef = useRef<((e: maplibregl.MapMouseEvent) => void) | null>(null);
+
   const loadDemographics = useCallback(async () => {
     if (!map || !visible) return;
 
     try {
-      const data = await api.getDemographicsGeoJSON({ level });
+      const cacheKey = getLevelCacheKey(level);
+      let levelData = dataCache.get(cacheKey);
+
+      // Fetch data if not cached
+      if (!levelData) {
+        console.log(`DemographicsLayer: Fetching level ${level} data...`);
+        const data = await api.getDemographicsGeoJSON({ level });
+
+        if (!data || !data.features || data.features.length === 0) {
+          console.error('No demographics data for level', level);
+          return;
+        }
+
+        levelData = { geojson: data as GeoJSON.FeatureCollection };
+        dataCache.set(cacheKey, levelData);
+        console.log(`DemographicsLayer: Cached level ${level} - ${levelData.geojson.features.length} features`);
+      } else {
+        console.log(`DemographicsLayer: Using cached level ${level} data`);
+      }
+
+      // Filter by parentId if specified (client-side filtering)
+      let displayData: GeoJSON.FeatureCollection;
+      if (parentId !== null) {
+        displayData = filterFeaturesByParent(levelData.geojson, parentId);
+        console.log(`DemographicsLayer: Filtered to ${displayData.features.length} features for parent ${parentId}`);
+      } else {
+        displayData = levelData.geojson;
+      }
+
+      if (displayData.features.length === 0) {
+        console.warn('No features to display after filtering');
+        return;
+      }
 
       // Remove existing layers if present
       try {
@@ -47,24 +191,37 @@ export function DemographicsLayer({ map, visible, level = 2, metric = 'populatio
       // Add GeoJSON source
       map.addSource('demographics', {
         type: 'geojson',
-        data: data as GeoJSON.FeatureCollection,
+        data: displayData,
+        promoteId: 'id',
       });
 
       // Get the property to color by
       const colorProperty = metric === 'votingAgePercent' ? 'votingAgePercent' :
                            metric === 'votingAge' ? 'votingAgePopulation' : 'totalPopulation';
 
-      const scale = colorScales[metric];
+      // Calculate DYNAMIC color scale based on displayed data
+      const baseColors = colorScales[metric].colors;
+      let dynamicStops: number[];
 
-      // Build color expression
-      const colorExpr: any[] = [
-        'interpolate',
-        ['linear'],
-        ['get', colorProperty],
-      ];
+      if (metric === 'votingAgePercent') {
+        // Percentage metrics - use fixed scale
+        dynamicStops = colorScales[metric].stops;
+      } else {
+        // Absolute metrics - calculate dynamic scale from data
+        const { min, max } = calculateDataRange(displayData.features, colorProperty);
+        dynamicStops = generateDynamicStops(min, max, baseColors.length);
+        console.log(`DemographicsLayer: Dynamic scale for ${metric}: ${min.toLocaleString()} - ${max.toLocaleString()}`);
+      }
 
-      for (let i = 0; i < scale.stops.length; i++) {
-        colorExpr.push(scale.stops[i], scale.colors[i]);
+      // Notify parent of scale change
+      if (onScaleChange) {
+        onScaleChange({ stops: dynamicStops, colors: baseColors });
+      }
+
+      // Build color expression with dynamic stops
+      const colorExpr: any[] = ['interpolate', ['linear'], ['get', colorProperty]];
+      for (let i = 0; i < dynamicStops.length; i++) {
+        colorExpr.push(dynamicStops[i], baseColors[i]);
       }
 
       // Add fill layer
@@ -116,7 +273,67 @@ export function DemographicsLayer({ map, visible, level = 2, metric = 'populatio
     } catch (err) {
       console.error('Error loading demographics:', err);
     }
-  }, [map, visible, level, metric]);
+  }, [map, visible, level, metric, parentId, onScaleChange]);
+
+  // Basemap click handler for district selection
+  useEffect(() => {
+    if (!map || !visible || !onDistrictSelect) return;
+
+    // Remove previous handler if exists
+    if (basemapHandlerRef.current) {
+      map.off('click', basemapHandlerRef.current);
+    }
+
+    const handleBasemapClick = (e: maplibregl.MapMouseEvent) => {
+      // Check if click was on the demographics layer
+      const hasDemographicsLayer = map.getLayer('demographics-fill');
+      if (hasDemographicsLayer) {
+        const features = map.queryRenderedFeatures(e.point, { layers: ['demographics-fill'] });
+        if (features && features.length > 0) {
+          return; // Click was on choropleth, let layer handler process it
+        }
+      }
+
+      // Click was on basemap - check cached district data
+      const { lng, lat } = e.lngLat;
+      const districtCacheKey = getLevelCacheKey(2);
+      const districtData = dataCache.get(districtCacheKey);
+
+      if (!districtData) {
+        console.log('DemographicsLayer: No cached district data for basemap navigation');
+        return;
+      }
+
+      // Find which district contains the clicked point
+      const clickedDistrict = districtData.geojson.features.find(feature => {
+        if (!feature.geometry) return false;
+        return pointInPolygon([lng, lat], feature.geometry);
+      });
+
+      if (clickedDistrict && clickedDistrict.properties) {
+        const { id, name } = clickedDistrict.properties as { id: number; name: string };
+        console.log('DemographicsLayer: Basemap click - navigating to district:', { id, name });
+
+        // Show navigation popup
+        new maplibregl.Popup({ closeOnClick: true, closeButton: false })
+          .setLngLat(e.lngLat)
+          .setHTML(`<div style="padding: 8px; font-family: system-ui;"><strong>Navigating to ${name}</strong></div>`)
+          .addTo(map);
+
+        onDistrictSelect(id, name);
+      }
+    };
+
+    basemapHandlerRef.current = handleBasemapClick;
+    map.on('click', handleBasemapClick);
+
+    return () => {
+      if (basemapHandlerRef.current) {
+        map.off('click', basemapHandlerRef.current);
+        basemapHandlerRef.current = null;
+      }
+    };
+  }, [map, visible, onDistrictSelect]);
 
   // Load demographics when map or settings change
   useEffect(() => {
@@ -135,7 +352,31 @@ export function DemographicsLayer({ map, visible, level = 2, metric = 'populatio
         // Layers may not exist
       }
     }
-  }, [map, visible, level, metric, loadDemographics]);
+  }, [map, visible, level, metric, parentId, loadDemographics]);
+
+  // Preload district data for basemap navigation
+  useEffect(() => {
+    if (!map || !visible) return;
+
+    const preloadDistricts = async () => {
+      const districtCacheKey = getLevelCacheKey(2);
+      if (dataCache.has(districtCacheKey)) return;
+
+      try {
+        const data = await api.getDemographicsGeoJSON({ level: 2 });
+        if (data?.features?.length > 0) {
+          dataCache.set(districtCacheKey, { geojson: data as GeoJSON.FeatureCollection });
+          console.log('DemographicsLayer: Preloaded district data for basemap navigation');
+        }
+      } catch (err) {
+        console.error('Failed to preload districts:', err);
+      }
+    };
+
+    // Preload after a short delay
+    const timer = setTimeout(preloadDistricts, 500);
+    return () => clearTimeout(timer);
+  }, [map, visible]);
 
   // Show layers when visibility changes to true
   useEffect(() => {
@@ -207,6 +448,7 @@ export function DemographicsFilterPanel({
   metric,
   onMetricChange,
   nationalStats,
+  currentScale,
 }: {
   visible: boolean;
   onVisibilityChange: (visible: boolean) => void;
@@ -216,8 +458,11 @@ export function DemographicsFilterPanel({
     totalPopulation: number;
     votingAgePopulation: number;
   };
+  /** Dynamic scale from DemographicsLayer */
+  currentScale?: { stops: number[]; colors: string[] };
 }) {
-  const scale = colorScales[metric];
+  // Use dynamic scale if provided, otherwise fall back to default
+  const scale = currentScale || colorScales[metric];
 
   return (
     <div className="bg-gray-800/95 backdrop-blur-sm px-4 py-3 rounded-lg shadow-lg">
@@ -252,7 +497,7 @@ export function DemographicsFilterPanel({
             </select>
           </div>
 
-          {/* Color scale legend */}
+          {/* Color scale legend - now uses dynamic scale */}
           <div className="mb-2">
             <div className="flex h-2 rounded overflow-hidden">
               {scale.colors.map((color, i) => (
@@ -264,11 +509,15 @@ export function DemographicsFilterPanel({
               ))}
             </div>
             <div className="flex justify-between text-xs text-gray-400 mt-1">
-              <span>{metric === 'votingAgePercent' ? '0%' : '0'}</span>
+              <span>
+                {metric === 'votingAgePercent'
+                  ? `${scale.stops[0]}%`
+                  : formatCompactNumber(scale.stops[0])}
+              </span>
               <span>
                 {metric === 'votingAgePercent'
                   ? `${scale.stops[scale.stops.length - 1]}%`
-                  : `${(scale.stops[scale.stops.length - 1] / 1000000).toFixed(1)}M`}
+                  : formatCompactNumber(scale.stops[scale.stops.length - 1])}
               </span>
             </div>
           </div>

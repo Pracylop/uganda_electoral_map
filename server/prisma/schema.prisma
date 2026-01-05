@@ -147,6 +147,7 @@ model AdministrativeUnit {
   electionSummaries ElectionSummary[]
   pollingStations  PollingStation[]
   demographics     Demographics[]
+  demographicsAggregates DemographicsAggregate[]
 
   // Electoral Issue Location Relations
   issuesInDistrict     ElectoralIssue[] @relation("IssueDistrict")
@@ -368,6 +369,40 @@ model Demographics {
   @@unique([adminUnitId, censusYear])
   @@index([censusYear])
   @@map("demographics")
+}
+
+// ============================================================================
+// DEMOGRAPHICS AGGREGATE - Pre-computed aggregates for fast map rendering
+// ============================================================================
+
+model DemographicsAggregate {
+  id                    Int      @id @default(autoincrement())
+  adminUnitId           Int      @map("admin_unit_id")
+  censusYear            Int      @map("census_year")
+  level                 Int      // Admin unit level (1, 2, 3, 4, 5)
+
+  // Aggregated Population
+  totalPopulation       Int      @map("total_population")
+  malePopulation        Int      @map("male_population")
+  femalePopulation      Int      @map("female_population")
+
+  // Aggregated Age Distribution
+  votingAgePopulation   Int      @map("voting_age_population")
+  youthPopulation       Int      @map("youth_population")
+  elderlyPopulation     Int      @map("elderly_population")
+
+  // Aggregated Households
+  numberOfHouseholds    Int      @map("number_of_households")
+  parishCount           Int      @map("parish_count")
+
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  // Relations
+  adminUnit             AdministrativeUnit @relation(fields: [adminUnitId], references: [id])
+
+  @@unique([adminUnitId, censusYear])
+  @@index([level, censusYear])
+  @@map("demographics_aggregates")
 }
 
 // ============================================================================

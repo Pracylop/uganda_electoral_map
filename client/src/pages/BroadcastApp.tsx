@@ -8,6 +8,7 @@ import {
   BroadcastMap,
   BroadcastComparisonView,
   BroadcastIssuesMap,
+  BroadcastDemographicsMap,
   LayersPanel,
   IssuesPanel,
   AnnotationCanvas,
@@ -140,6 +141,10 @@ export function BroadcastApp() {
         case 'i':
         case 'I':
           setViewMode('issues');
+          break;
+        case 'g':
+        case 'G':
+          setViewMode('demographics');
           break;
         case 'f':
         case 'F':
@@ -312,8 +317,32 @@ export function BroadcastApp() {
           </div>
         )}
 
+        {/* Demographics View */}
+        {viewMode === 'demographics' && (
+          <div className="w-full h-full relative">
+            <BroadcastDemographicsMap
+              onRegionClick={handleRegionClick}
+              interactionsDisabled={annotationMode}
+            />
+
+            {/* Annotation Canvas Overlay */}
+            <AnnotationCanvas
+              annotations={annotations}
+              isDrawing={isDrawing}
+              currentPoints={currentPoints}
+              activeTool={activeTool}
+              activeColor={activeColor}
+              strokeWidth={strokeWidth}
+              onStartDrawing={startDrawing}
+              onContinueDrawing={continueDrawing}
+              onFinishDrawing={finishDrawing}
+              enabled={annotationMode}
+            />
+          </div>
+        )}
+
         {/* No Election Selected */}
-        {!selectedElectionId && viewMode !== 'comparison' && viewMode !== 'issues' && (
+        {!selectedElectionId && viewMode !== 'comparison' && viewMode !== 'issues' && viewMode !== 'demographics' && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 z-10">
             <div className="text-center">
               <p className="text-2xl text-white mb-4">No Election Selected</p>
@@ -335,7 +364,7 @@ export function BroadcastApp() {
       <RegionSearch />
 
       {/* Breadcrumb Navigation (bottom of screen) */}
-      {viewMode === 'map' && !annotationMode && <BroadcastBreadcrumb />}
+      {(viewMode === 'map' || viewMode === 'demographics') && !annotationMode && <BroadcastBreadcrumb />}
 
       {/* Annotation Toolbar */}
       <AnnotationToolbar

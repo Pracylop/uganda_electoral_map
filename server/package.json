@@ -15,7 +15,8 @@
     "import:presidential": "tsx src/scripts/importPresidentialResults.ts",
     "import:stations": "tsx src/scripts/importPollingStations.ts",
     "import:issues": "tsx src/scripts/importElectoralIssues.ts",
-    "import:demographics": "tsx src/scripts/importDemographics.ts"
+    "import:demographics": "tsx src/scripts/importDemographics.ts",
+    "aggregate:demographics": "tsx src/scripts/aggregateDemographics.ts"
   },
   "keywords": [
     "election",

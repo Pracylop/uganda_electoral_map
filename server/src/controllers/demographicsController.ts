@@ -7,6 +7,45 @@ const prisma = new PrismaClient();
 const DEFAULT_CENSUS_YEAR = 2024;
 
 /**
+ * Clean geometry by removing empty coordinate arrays at any depth.
+ * This fixes issues where MultiPolygon geometries have empty rings.
+ */
+function cleanGeometry(geom: any): any {
+  if (!geom || !geom.type || !geom.coordinates) return null;
+
+  if (geom.type === 'MultiPolygon') {
+    const cleanedPolygons = geom.coordinates
+      .filter((polygon: any) => {
+        if (!Array.isArray(polygon) || polygon.length === 0) return false;
+        const outerRing = polygon[0];
+        if (!Array.isArray(outerRing) || outerRing.length === 0) return false;
+        if (!Array.isArray(outerRing[0]) || outerRing[0].length < 2) return false;
+        return true;
+      })
+      .map((polygon: any) => polygon.filter((ring: any) =>
+        Array.isArray(ring) && ring.length > 0 &&
+        Array.isArray(ring[0]) && ring[0].length >= 2
+      ))
+      .filter((polygon: any) => polygon.length > 0);
+
+    if (cleanedPolygons.length === 0) return null;
+    return { type: 'MultiPolygon', coordinates: cleanedPolygons };
+  }
+
+  if (geom.type === 'Polygon') {
+    const cleanedRings = geom.coordinates.filter((ring: any) =>
+      Array.isArray(ring) && ring.length > 0 &&
+      Array.isArray(ring[0]) && ring[0].length >= 2
+    );
+    if (cleanedRings.length === 0) return null;
+    return { type: 'Polygon', coordinates: cleanedRings };
+  }
+
+  if (!Array.isArray(geom.coordinates) || geom.coordinates.length === 0) return null;
+  return geom;
+}
+
+/**
  * Get national demographics statistics with district breakdown
  * GET /api/demographics/stats
  */
@@ -194,174 +233,119 @@ export async function getDemographicsByUnit(req: Request, res: Response) {
 /**
  * Get demographics as GeoJSON for map display
  * GET /api/demographics/geojson
+ *
+ * OPTIMIZED VERSION: Uses pre-aggregated demographics data for fast loading.
+ * Pattern matches Electoral map's getAggregatedResults approach.
  */
 export async function getDemographicsGeoJSON(req: Request, res: Response) {
   try {
     const level = parseInt(req.query.level as string) || 2; // Default to district level
     const censusYear = parseInt(req.query.censusYear as string) || DEFAULT_CENSUS_YEAR;
-    const metric = (req.query.metric as string) || 'population'; // population, votingAge, density
+    const metric = (req.query.metric as string) || 'population';
     const parentId = req.query.parentId ? parseInt(req.query.parentId as string) : null;
 
-    // Get admin units at the specified level with demographics
-    const unitsWithDemographics = await prisma.$queryRaw<Array<{
-      id: number;
-      name: string;
-      level: number;
-      geometry: string | null;
-      total_population: bigint;
-      male_population: bigint;
-      female_population: bigint;
-      voting_age_population: bigint;
-      youth_population: bigint;
-      elderly_population: bigint;
-      households: bigint;
-      parish_count: bigint;
-    }>>`
-      WITH unit_demographics AS (
-        SELECT
-          au.id as unit_id,
-          SUM(dem.total_population) as total_population,
-          SUM(dem.male_population) as male_population,
-          SUM(dem.female_population) as female_population,
-          SUM(dem.voting_age_population) as voting_age_population,
-          SUM(dem.youth_population) as youth_population,
-          SUM(dem.elderly_population) as elderly_population,
-          SUM(dem.number_of_households) as households,
-          COUNT(dem.id) as parish_count
-        FROM administrative_units au
-        JOIN administrative_units p ON (
-          CASE
-            WHEN au.level = 2 THEN p.id IN (
-              SELECT p2.id FROM administrative_units p2
-              JOIN administrative_units sc ON p2.parent_id = sc.id
-              JOIN administrative_units c ON sc.parent_id = c.id
-              WHERE c.parent_id = au.id AND p2.level = 5
-            )
-            WHEN au.level = 3 THEN p.id IN (
-              SELECT p2.id FROM administrative_units p2
-              JOIN administrative_units sc ON p2.parent_id = sc.id
-              WHERE sc.parent_id = au.id AND p2.level = 5
-            )
-            WHEN au.level = 4 THEN p.parent_id = au.id AND p.level = 5
-            WHEN au.level = 5 THEN p.id = au.id
-            ELSE FALSE
-          END
-        )
-        JOIN demographics dem ON dem.admin_unit_id = p.id AND dem.census_year = ${censusYear}
-        WHERE au.level = ${level}
-        GROUP BY au.id
-      )
-      SELECT
-        au.id,
-        au.name,
-        au.level,
-        au.geometry,
-        COALESCE(ud.total_population, 0) as total_population,
-        COALESCE(ud.male_population, 0) as male_population,
-        COALESCE(ud.female_population, 0) as female_population,
-        COALESCE(ud.voting_age_population, 0) as voting_age_population,
-        COALESCE(ud.youth_population, 0) as youth_population,
-        COALESCE(ud.elderly_population, 0) as elderly_population,
-        COALESCE(ud.households, 0) as households,
-        COALESCE(ud.parish_count, 0) as parish_count
-      FROM administrative_units au
-      LEFT JOIN unit_demographics ud ON au.id = ud.unit_id
-      WHERE au.level = ${level}
-        AND au.geometry IS NOT NULL
-        ${parentId ? Prisma.sql`AND au.parent_id = ${parentId}` : Prisma.empty}
-    `;
+    console.log(`Demographics GeoJSON: level=${level}, parentId=${parentId}, censusYear=${censusYear}`);
+    const startTime = Date.now();
 
-    /**
-     * Clean geometry by removing empty coordinate arrays at any depth.
-     * This fixes issues where MultiPolygon geometries have empty rings.
-     */
-    const cleanGeometry = (geom: any): any => {
-      if (!geom || !geom.type || !geom.coordinates) return null;
-
-      if (geom.type === 'MultiPolygon') {
-        // MultiPolygon: [ Polygon1, Polygon2, ... ]
-        // Each Polygon: [ Ring1, Ring2, ... ] where Ring = [[lon,lat], ...]
-        const cleanedPolygons = geom.coordinates
-          .filter((polygon: any) => {
-            // Filter out null/undefined polygons
-            if (!Array.isArray(polygon)) return false;
-            // Filter out empty polygons
-            if (polygon.length === 0) return false;
-            // Check if outer ring has coordinates
-            const outerRing = polygon[0];
-            if (!Array.isArray(outerRing) || outerRing.length === 0) return false;
-            // Check if first coordinate is valid [lon, lat]
-            if (!Array.isArray(outerRing[0]) || outerRing[0].length < 2) return false;
-            return true;
-          })
-          .map((polygon: any) => {
-            // For each polygon, filter out empty rings
-            return polygon.filter((ring: any) => {
-              if (!Array.isArray(ring) || ring.length === 0) return false;
-              if (!Array.isArray(ring[0]) || ring[0].length < 2) return false;
-              return true;
-            });
-          })
-          .filter((polygon: any) => polygon.length > 0); // Remove polygons with no valid rings
-
-        if (cleanedPolygons.length === 0) return null;
-        return { type: 'MultiPolygon', coordinates: cleanedPolygons };
-      }
-
-      if (geom.type === 'Polygon') {
-        // Polygon: [ Ring1, Ring2, ... ]
-        const cleanedRings = geom.coordinates.filter((ring: any) => {
-          if (!Array.isArray(ring) || ring.length === 0) return false;
-          if (!Array.isArray(ring[0]) || ring[0].length < 2) return false;
-          return true;
-        });
-        if (cleanedRings.length === 0) return null;
-        return { type: 'Polygon', coordinates: cleanedRings };
-      }
-
-      // For other geometry types, just validate basic structure
-      if (!Array.isArray(geom.coordinates) || geom.coordinates.length === 0) return null;
-      return geom;
+    // Step 1: Get pre-aggregated demographics (fast - uses indexed lookup)
+    const whereClause: any = {
+      level,
+      censusYear
     };
 
-    // Build GeoJSON
-    const features = unitsWithDemographics.map(unit => {
+    const aggregates = await prisma.demographicsAggregate.findMany({
+      where: whereClause,
+      select: {
+        adminUnitId: true,
+        totalPopulation: true,
+        malePopulation: true,
+        femalePopulation: true,
+        votingAgePopulation: true,
+        youthPopulation: true,
+        elderlyPopulation: true,
+        numberOfHouseholds: true,
+        parishCount: true,
+      }
+    });
+
+    console.log(`  Aggregates fetched: ${aggregates.length} in ${Date.now() - startTime}ms`);
+
+    // Build lookup map
+    const demographicsMap = new Map<number, typeof aggregates[0]>();
+    aggregates.forEach(a => demographicsMap.set(a.adminUnitId, a));
+
+    // Step 2: Get admin units with geometry (separate query for efficiency)
+    const geoStartTime = Date.now();
+    const adminUnitWhere: any = {
+      level,
+      geometry: { not: null }
+    };
+    if (parentId !== null) {
+      adminUnitWhere.parentId = parentId;
+    }
+
+    const adminUnits = await prisma.administrativeUnit.findMany({
+      where: adminUnitWhere,
+      select: {
+        id: true,
+        name: true,
+        level: true,
+        parentId: true,
+        geometry: true
+      }
+    });
+
+    console.log(`  Admin units fetched: ${adminUnits.length} in ${Date.now() - geoStartTime}ms`);
+
+    // Step 3: Build GeoJSON features
+    const features: any[] = [];
+
+    for (const unit of adminUnits) {
+      // Parse and clean geometry
       let geometry = null;
       try {
         const parsed = unit.geometry ? JSON.parse(unit.geometry) : null;
         geometry = cleanGeometry(parsed);
       } catch (e) {
-        // Invalid geometry
+        continue; // Skip units with invalid geometry
       }
 
-      const totalPop = Number(unit.total_population);
-      const votingAgePop = Number(unit.voting_age_population);
-      const votingAgePercent = totalPop > 0 ? (votingAgePop / totalPop) * 100 : 0;
-      const malePercent = totalPop > 0 ? (Number(unit.male_population) / totalPop) * 100 : 0;
+      if (!geometry) continue;
 
-      return {
+      // Get demographics data from lookup map
+      const demo = demographicsMap.get(unit.id);
+
+      const totalPop = demo?.totalPopulation || 0;
+      const votingAgePop = demo?.votingAgePopulation || 0;
+      const malePop = demo?.malePopulation || 0;
+      const votingAgePercent = totalPop > 0 ? (votingAgePop / totalPop) * 100 : 0;
+      const malePercent = totalPop > 0 ? (malePop / totalPop) * 100 : 0;
+
+      features.push({
         type: 'Feature',
         properties: {
           id: unit.id,
           name: unit.name,
           level: unit.level,
+          parentId: unit.parentId,
           totalPopulation: totalPop,
-          malePopulation: Number(unit.male_population),
-          femalePopulation: Number(unit.female_population),
+          malePopulation: malePop,
+          femalePopulation: demo?.femalePopulation || 0,
           votingAgePopulation: votingAgePop,
-          youthPopulation: Number(unit.youth_population),
-          elderlyPopulation: Number(unit.elderly_population),
-          numberOfHouseholds: Number(unit.households),
-          parishCount: Number(unit.parish_count),
-          // Calculated percentages
+          youthPopulation: demo?.youthPopulation || 0,
+          elderlyPopulation: demo?.elderlyPopulation || 0,
+          numberOfHouseholds: demo?.numberOfHouseholds || 0,
+          parishCount: demo?.parishCount || 0,
           votingAgePercent: Math.round(votingAgePercent * 10) / 10,
           malePercent: Math.round(malePercent * 10) / 10,
         },
         geometry,
-      };
-    }).filter(f => f.geometry !== null);
+      });
+    }
 
-    // Return standard GeoJSON (no properties at FeatureCollection level)
+    console.log(`  Total time: ${Date.now() - startTime}ms, features: ${features.length}`);
+
+    // Return GeoJSON
     res.json({
       type: 'FeatureCollection',
       features,

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ViewMode = 'map' | 'dashboard' | 'comparison' | 'issues';
+export type ViewMode = 'map' | 'dashboard' | 'comparison' | 'issues' | 'demographics';
 export type SidebarPosition = 'left' | 'right';
 export type IssuesInteractionMode = 'stats' | 'view';
 

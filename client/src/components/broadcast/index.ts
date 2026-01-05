@@ -6,6 +6,7 @@ export { BroadcastBreadcrumb } from './BroadcastBreadcrumb';
 export { BroadcastMap } from './BroadcastMap';
 export { BroadcastComparisonView } from './BroadcastComparisonView';
 export { BroadcastIssuesMap } from './BroadcastIssuesMap';
+export { BroadcastDemographicsMap } from './BroadcastDemographicsMap';
 export { LayersPanel } from './LayersPanel';
 export { IssuesPanel } from './IssuesPanel';
 export { AnnotationCanvas } from './AnnotationCanvas';

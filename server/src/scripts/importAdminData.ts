@@ -37,14 +37,61 @@ async function importAdministrativeData() {
   console.log('Starting administrative data import...');
 
   try {
-    // Step 1: Delete all existing administrative units
-    console.log('\n1. Deleting existing administrative units...');
+    // Step 1: Delete all related data first (due to foreign key constraints)
+    console.log('\n1. Deleting related data and existing administrative units...');
+
+    // Delete results (references administrative units)
+    await prisma.result.deleteMany({});
+    console.log('   ✓ All results deleted');
+
+    // Delete election summaries (references administrative units)
+    await prisma.electionSummary.deleteMany({});
+    console.log('   ✓ All election summaries deleted');
+
+    // Delete demographics aggregates (references administrative units)
+    await prisma.demographicsAggregate.deleteMany({});
+    console.log('   ✓ All demographics aggregates deleted');
+
+    // Delete demographics (parish level - references administrative units)
+    await prisma.demographics.deleteMany({});
+    console.log('   ✓ All demographics deleted');
+
+    // Delete district history (references administrative units)
+    await prisma.districtHistory.deleteMany({});
+    console.log('   ✓ All district history deleted');
+
+    // Clear candidate electoral area references
+    await prisma.candidate.updateMany({
+      data: { electoralAreaId: null }
+    });
+    console.log('   ✓ Candidate electoral area references cleared');
+
+    // Clear electoral issue location references
+    await prisma.electoralIssue.updateMany({
+      data: {
+        districtId: null,
+        constituencyId: null,
+        subcountyId: null,
+        parishId: null
+      }
+    });
+    console.log('   ✓ Electoral issue location references cleared');
+
+    // Delete polling station elections first (references polling stations)
+    await prisma.pollingStationElection.deleteMany({});
+    console.log('   ✓ All polling station elections deleted');
+
+    // Delete polling stations (references administrative units via parish)
+    await prisma.pollingStation.deleteMany({});
+    console.log('   ✓ All polling stations deleted');
+
+    // Delete administrative units
     await prisma.administrativeUnit.deleteMany({});
     console.log('   ✓ All existing administrative units deleted');
 
     // Step 2: Read CSV file
     console.log('\n2. Reading CSV file...');
-    const csvPath = path.join(__dirname, '../../../../Data/Admin_Boundaries/UG_Admin_Regions.csv');
+    const csvPath = path.join(__dirname, '../../../../Data/Admin_Boundaries/UG_Admin_Regions_UPDATED.csv');
     const csvContent = fs.readFileSync(csvPath, 'utf-8');
     const csvLines = csvContent.split('\n').filter(line => line.trim());
     const headers = csvLines[0].split(',').map(h => h.replace(/"/g, ''));
