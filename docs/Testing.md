@@ -223,6 +223,151 @@ This document contains test cases for verifying feature functionality. Use this 
 
 ---
 
+### Regional Breakdown Panel
+
+**Test ID:** TEST-003B
+**Date Added:** 2026-01-05
+**Status:** Not Tested
+
+**Prerequisites:**
+- Application running at http://localhost:5173
+- User logged in
+- Presidential election with approved results in database
+
+#### Test Case 3B.1: Regional Panel Display
+
+**Test Steps:**
+1. Navigate to Electoral Map
+2. Select a Presidential election (e.g., 2021 Presidential)
+3. Click "Dashboard" button to view NationalDashboard
+4. Scroll down to the "Results by Region" section
+
+**Expected Results:**
+- Regional breakdown panel visible below candidate bars
+- Header shows "Results by Region" with MapPin icon
+- Count shows "X / 17 reporting" (X = regions with results)
+- List of subregions displayed with vote totals
+
+---
+
+#### Test Case 3B.2: Region Card Expansion
+
+**Test Steps:**
+1. View Regional Breakdown panel (Test 3B.1)
+2. Click on any region card (e.g., BUGANDA)
+3. Click on the same card again
+4. Click on a different region card
+
+**Expected Results:**
+- Clicking expands card to show all candidates
+- Expanded card shows candidate list with:
+  - Party color indicator (colored bar)
+  - Candidate name and party abbreviation
+  - Vote count and percentage
+- Click again collapses the card
+- Only one card expanded at a time
+
+---
+
+#### Test Case 3B.3: Leading Candidate Display
+
+**Test Steps:**
+1. View Regional Breakdown panel
+2. Observe the leading candidate info on each region card
+
+**Expected Results:**
+- Each region card shows leading candidate on right side
+- Leading candidate displays:
+  - Party color bar
+  - Candidate name
+  - Percentage (e.g., "65.5%")
+- Chevron icon indicates expandable card
+
+---
+
+#### Test Case 3B.4: Empty State
+
+**Test Steps:**
+1. Select an election with no approved results
+2. Navigate to Dashboard view
+3. Look for Regional Breakdown section
+
+**Expected Results:**
+- Panel shows "Results by Region" header
+- Count shows "0 / 17 reporting"
+- Message displays: "No regional results available yet"
+
+---
+
+#### Test Case 3B.5: MP Election Exclusion
+
+**Test Steps:**
+1. Select an MP election (e.g., "2021 District Woman MP")
+2. Navigate to Dashboard view
+3. Look for Regional Breakdown section
+
+**Expected Results:**
+- Regional Breakdown panel is NOT displayed
+- Only party seats section is shown
+- This is intentional - regional breakdown only for presidential elections
+
+---
+
+#### Test Case 3B.6: API Endpoint Test
+
+**Test Steps (via curl):**
+```bash
+TOKEN=$(cat /tmp/token.txt)
+curl -s "http://localhost:3000/api/results/regional/6" \
+  -H "Authorization: Bearer $TOKEN" | jq
+```
+
+**Expected Results:**
+```json
+{
+  "electionId": 6,
+  "electionName": "...",
+  "totalSubregions": 17,
+  "reportingSubregions": 0,
+  "regionalBreakdown": []
+}
+```
+- Returns 17 total subregions (Uganda's regions)
+- regionalBreakdown contains regions with results
+- Each region has subregionId, subregionName, totalVotes, leadingCandidate, candidates array
+
+---
+
+#### Test Case 3B.7: Scrollable Region List
+
+**Test Steps:**
+1. View Regional Breakdown panel with many reporting regions
+2. Attempt to scroll within the region list
+
+**Expected Results:**
+- Region list is scrollable when content exceeds 400px height
+- Custom scrollbar styling (thin, dark theme)
+- Smooth scrolling behavior
+
+---
+
+#### Test Case 3B.8: Responsive Layout
+
+**Test Steps:**
+1. View Regional Breakdown on desktop (>768px width)
+2. Resize browser to mobile width (<768px)
+
+**Expected Results:**
+Desktop:
+- Region count badge aligned right in header
+- Leader info displayed on right side of card
+
+Mobile:
+- Header stacks vertically (title above count)
+- Leader info moves below region name
+
+---
+
 ### Touch-Screen Optimization (BCAST-002)
 
 **Test ID:** TEST-004
