@@ -350,7 +350,8 @@ Build a broadcast-quality GIS electoral results display system for Uganda 2026 e
     - electionController: CREATE_ELECTION, UPDATE_ELECTION, DELETE_ELECTION
     - candidateController: CREATE_CANDIDATE, UPDATE_CANDIDATE, DELETE_CANDIDATE
     - authController: LOGIN, PROFILE_UPDATE, PASSWORD_CHANGE
-    - resultController: CREATE_RESULT, SUBMIT_RESULT, APPROVE_RESULT, REJECT_RESULT
+    - resultController: CREATE_RESULT, UPDATE_RESULT, DELETE_RESULT, SUBMIT_RESULT, APPROVE_RESULT, REJECT_RESULT
+    - issueController: CREATE_ISSUE, UPDATE_ISSUE, DELETE_ISSUE
 - Issues encountered: None
 - Next steps: Phase 3 - Data Management
 
