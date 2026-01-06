@@ -56,8 +56,13 @@ export function BroadcastSidebar({ onExit, canDrillUp }: BroadcastSidebarProps) 
         z-40
         ${isLeft ? 'left-0 border-r' : 'right-0 border-l'}
         border-gray-700
-        ${sidebarExpanded ? 'w-20' : 'w-0 overflow-hidden'}
+        ${sidebarExpanded ? 'w-20 overflow-y-auto overflow-x-hidden' : 'w-0 overflow-hidden'}
+        scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent
       `}
+      style={{
+        scrollbarWidth: 'thin',
+        WebkitOverflowScrolling: 'touch',
+      }}
     >
       {/* Toggle Button */}
       <IconButton
