@@ -1,6 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../lib/api';
+import { useDraftStorage } from '../hooks/useDraftStorage';
+import { DraftRecoveryDialog } from '../components/DraftRecoveryDialog';
+import { AutoSaveIndicator } from '../components/AutoSaveIndicator';
+
+interface ResultsFormData {
+  administrativeUnitId: string;
+  candidateVotes: Record<number, number>;
+  [key: string]: unknown; // Index signature for Record<string, unknown> constraint
+}
 
 interface Candidate {
   id: number;
@@ -35,9 +44,58 @@ export function ResultsEntry() {
     Map<number, number>
   >(new Map());
 
+  // Draft recovery state
+  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
+  const [draftChecked, setDraftChecked] = useState(false);
+
+  // Auto-save hook
+  const {
+    hasDraft,
+    draftAge,
+    saveDraft,
+    clearDraft,
+    restoreDraft,
+    dismissDraft,
+    lastSaved,
+    isSaving: isDraftSaving,
+  } = useDraftStorage<ResultsFormData>({
+    formId: `results_entry_${id}`,
+    debounceMs: 2000, // Save every 2 seconds after changes
+  });
+
   useEffect(() => {
     loadElection();
   }, [id]);
+
+  // Check for draft after election loads
+  useEffect(() => {
+    if (election && !draftChecked && hasDraft) {
+      setShowRecoveryDialog(true);
+      setDraftChecked(true);
+    } else if (election && !draftChecked) {
+      setDraftChecked(true);
+    }
+  }, [election, draftChecked, hasDraft]);
+
+  // Auto-save form data when it changes
+  const saveFormData = useCallback(() => {
+    if (!draftChecked) return; // Don't save until we've checked for existing draft
+
+    const formData: ResultsFormData = {
+      administrativeUnitId,
+      candidateVotes: Object.fromEntries(candidateVotes),
+    };
+
+    // Only save if there's actual data
+    if (administrativeUnitId || candidateVotes.size > 0) {
+      saveDraft(formData);
+    }
+  }, [administrativeUnitId, candidateVotes, saveDraft, draftChecked]);
+
+  // Trigger auto-save when form data changes
+  useEffect(() => {
+    saveFormData();
+  }, [saveFormData]);
 
   const loadElection = async () => {
     if (!id) return;
@@ -59,6 +117,24 @@ export function ResultsEntry() {
     const newVotes = new Map(candidateVotes);
     newVotes.set(candidateId, voteCount);
     setCandidateVotes(newVotes);
+  };
+
+  // Handle draft restoration
+  const handleRestoreDraft = () => {
+    const draft = restoreDraft();
+    if (draft) {
+      setAdministrativeUnitId(draft.administrativeUnitId || '');
+      setCandidateVotes(new Map(Object.entries(draft.candidateVotes).map(
+        ([k, v]) => [parseInt(k), v as number]
+      )));
+    }
+    setShowRecoveryDialog(false);
+  };
+
+  // Handle draft dismissal
+  const handleDismissDraft = () => {
+    dismissDraft();
+    setShowRecoveryDialog(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -85,6 +161,7 @@ export function ResultsEntry() {
       setSuccess('Results submitted successfully!');
       setCandidateVotes(new Map());
       setAdministrativeUnitId('');
+      clearDraft(); // Clear the auto-saved draft on successful submission
 
       // Redirect after 2 seconds
       setTimeout(() => {
@@ -120,6 +197,15 @@ export function ResultsEntry() {
 
   return (
     <div className="flex-1 bg-gray-900 text-white p-8 overflow-auto">
+      {/* Draft Recovery Dialog */}
+      <DraftRecoveryDialog
+        isOpen={showRecoveryDialog}
+        draftAge={draftAge}
+        onRestore={handleRestoreDraft}
+        onDiscard={handleDismissDraft}
+        formName="results entry"
+      />
+
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
           <Link
@@ -128,8 +214,17 @@ export function ResultsEntry() {
           >
             ← Back to Results
           </Link>
-          <h1 className="text-3xl font-bold mb-2">Enter Results</h1>
-          <p className="text-gray-400">{election.name}</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">Enter Results</h1>
+              <p className="text-gray-400">{election.name}</p>
+            </div>
+            <AutoSaveIndicator
+              isSaving={isDraftSaving}
+              lastSaved={lastSaved}
+              hasUnsavedChanges={candidateVotes.size > 0 || !!administrativeUnitId}
+            />
+          </div>
         </div>
 
         {error && (
