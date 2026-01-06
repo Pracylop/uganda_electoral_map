@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Wifi, WifiOff, ChevronRight } from 'lucide-react';
+import { Wifi, WifiOff, ChevronRight, Pencil } from 'lucide-react';
 import { useBroadcastStore } from '../../stores/broadcastStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 
@@ -9,7 +9,7 @@ interface BroadcastHeaderProps {
 }
 
 export function BroadcastHeader({ electionName, electionType }: BroadcastHeaderProps) {
-  const { headerVisible, showHeader, hideHeader, drillDownStack, sidebarExpanded, sidebarPosition } = useBroadcastStore();
+  const { headerVisible, showHeader, hideHeader, drillDownStack, sidebarExpanded, sidebarPosition, viewMode, annotationMode, toggleAnnotationMode } = useBroadcastStore();
   const { status } = useConnectionStore();
   const isOnline = status === 'online';
   const hideTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -95,8 +95,28 @@ export function BroadcastHeader({ electionName, electionType }: BroadcastHeaderP
         ))}
       </nav>
 
-      {/* Connection Status */}
-      <div className="flex items-center gap-2">
+      {/* Tools & Status */}
+      <div className="flex items-center gap-4">
+        {/* Annotation Button - only show in map views */}
+        {(viewMode === 'map' || viewMode === 'demographics' || viewMode === 'issues') && (
+          <button
+            onClick={toggleAnnotationMode}
+            className={`
+              flex items-center gap-2 px-3 py-1.5 rounded-lg
+              transition-colors duration-200
+              ${annotationMode
+                ? 'bg-yellow-500 text-gray-900'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }
+            `}
+            title="Toggle Annotation Mode (A)"
+          >
+            <Pencil size={18} />
+            <span className="text-sm font-medium">Annotate</span>
+          </button>
+        )}
+
+        {/* Connection Status */}
         {isOnline ? (
           <span className="flex items-center gap-2 text-green-400">
             <Wifi size={18} />
