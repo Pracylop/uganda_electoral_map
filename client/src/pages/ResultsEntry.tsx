@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useDraftStorage } from '../hooks/useDraftStorage';
+import { useFormShortcuts } from '../hooks/useKeyboardShortcuts';
 import { DraftRecoveryDialog } from '../components/DraftRecoveryDialog';
 import { AutoSaveIndicator } from '../components/AutoSaveIndicator';
 
@@ -61,6 +62,20 @@ export function ResultsEntry() {
   } = useDraftStorage<ResultsFormData>({
     formId: `results_entry_${id}`,
     debounceMs: 2000, // Save every 2 seconds after changes
+  });
+
+  // Form ref for keyboard shortcut submission
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Form keyboard shortcuts (Ctrl+Enter to submit, Escape to cancel)
+  useFormShortcuts({
+    onSubmit: () => {
+      if (formRef.current && !isSaving && administrativeUnitId) {
+        formRef.current.requestSubmit();
+      }
+    },
+    onCancel: () => navigate(`/elections/${id}`),
+    enabled: !showRecoveryDialog,
   });
 
   useEffect(() => {
@@ -239,7 +254,7 @@ export function ResultsEntry() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="bg-gray-800 rounded-lg p-6">
+        <form ref={formRef} onSubmit={handleSubmit} className="bg-gray-800 rounded-lg p-6">
           {/* Location Selection - Simplified */}
           <div className="mb-6">
             <label className="block text-sm font-medium mb-2">
@@ -328,7 +343,7 @@ export function ResultsEntry() {
 
           <p className="text-xs text-gray-400 mt-4">
             * Results will be saved as draft and require approval before being
-            published.
+            published. Press <kbd className="px-1 py-0.5 bg-gray-700 rounded">Ctrl+Enter</kbd> to submit.
           </p>
         </form>
       </div>

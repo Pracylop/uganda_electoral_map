@@ -5,75 +5,98 @@
 
 import { useConnectionStore, formatLastConnected } from '../stores/connectionStore';
 import { useEffect, useState } from 'react';
+import { RefreshCw, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 
 export function ConnectionIndicator() {
+  const queryClient = useQueryClient();
   const { status, lastConnected, reconnectAttempts } = useConnectionStore();
   const [lastConnectedText, setLastConnectedText] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Update "last connected" text periodically
   useEffect(() => {
-    if (status !== 'online') {
-      setLastConnectedText(formatLastConnected(lastConnected));
-      const interval = setInterval(() => {
-        setLastConnectedText(formatLastConnected(lastConnected));
-      }, 10000); // Update every 10 seconds
-      return () => clearInterval(interval);
-    }
-  }, [status, lastConnected]);
+    const updateText = () => setLastConnectedText(formatLastConnected(lastConnected));
+    updateText();
+    const interval = setInterval(updateText, 10000); // Update every 10 seconds
+    return () => clearInterval(interval);
+  }, [lastConnected]);
 
-  // Determine status color and text
+  // Handle manual refresh
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      // Invalidate all queries to refresh data
+      await queryClient.invalidateQueries();
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
+
+  // Determine status color and text for dark mode
   let bgColor: string;
   let textColor: string;
   let statusText: string;
-  let dotColor: string;
+  let Icon = Wifi;
 
   switch (status) {
     case 'online':
-      bgColor = 'bg-green-50';
-      textColor = 'text-green-700';
-      dotColor = 'bg-green-500';
+      bgColor = 'bg-green-900/50';
+      textColor = 'text-green-400';
       statusText = 'Connected';
+      Icon = Wifi;
       break;
     case 'reconnecting':
-      bgColor = 'bg-yellow-50';
-      textColor = 'text-yellow-700';
-      dotColor = 'bg-yellow-500';
-      statusText = `Reconnecting${reconnectAttempts > 0 ? ` (${reconnectAttempts})` : ''}...`;
+      bgColor = 'bg-yellow-900/50';
+      textColor = 'text-yellow-400';
+      statusText = `Reconnecting${reconnectAttempts > 0 ? ` (${reconnectAttempts})` : ''}`;
+      Icon = Loader2;
       break;
     case 'offline':
-      bgColor = 'bg-red-50';
-      textColor = 'text-red-700';
-      dotColor = 'bg-red-500';
+      bgColor = 'bg-red-900/50';
+      textColor = 'text-red-400';
       statusText = 'Offline';
+      Icon = WifiOff;
       break;
     default:
-      bgColor = 'bg-gray-50';
-      textColor = 'text-gray-700';
-      dotColor = 'bg-gray-400';
+      bgColor = 'bg-gray-700';
+      textColor = 'text-gray-400';
       statusText = 'Unknown';
+      Icon = Wifi;
   }
 
   return (
-    <div
-      className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${bgColor} ${textColor}`}
-      title={status === 'offline' && lastConnectedText ? `Last sync: ${lastConnectedText}` : undefined}
-    >
-      {/* Animated pulse dot for reconnecting */}
-      <span className={`relative flex h-2.5 w-2.5`}>
-        {status === 'reconnecting' && (
-          <span
-            className={`animate-ping absolute inline-flex h-full w-full rounded-full ${dotColor} opacity-75`}
-          />
-        )}
-        <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${dotColor}`} />
-      </span>
+    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${bgColor}`}>
+      {/* Status Icon */}
+      <Icon
+        size={14}
+        className={`${textColor} ${status === 'reconnecting' ? 'animate-spin' : ''}`}
+      />
 
-      <span className="font-medium">{statusText}</span>
+      {/* Status Text */}
+      <span className={`font-medium ${textColor}`}>{statusText}</span>
 
-      {/* Show last connected time when offline */}
-      {status === 'offline' && lastConnectedText && (
-        <span className="text-xs opacity-75">({lastConnectedText})</span>
+      {/* Last sync time */}
+      {lastConnectedText && status === 'online' && (
+        <span className="text-xs text-gray-500 hidden md:inline">
+          • {lastConnectedText}
+        </span>
       )}
+
+      {/* Refresh button */}
+      <button
+        onClick={handleRefresh}
+        disabled={isRefreshing || status === 'offline'}
+        className={`p-1 rounded hover:bg-gray-600 transition-colors ${
+          isRefreshing || status === 'offline' ? 'opacity-50 cursor-not-allowed' : ''
+        }`}
+        title="Refresh data"
+      >
+        <RefreshCw
+          size={12}
+          className={`text-gray-400 ${isRefreshing ? 'animate-spin' : ''}`}
+        />
+      </button>
     </div>
   );
 }

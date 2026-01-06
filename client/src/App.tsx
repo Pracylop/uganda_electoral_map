@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useOnlineStatusListener } from './hooks/useOnlineStatus';
+import { useConnectionStatusListener } from './hooks/useConnectionStatusListener';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { UserManagement } from './pages/UserManagement';
@@ -17,16 +18,20 @@ import { IssuesStats } from './pages/IssuesStats';
 import { BroadcastApp } from './pages/BroadcastApp';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
+import { KeyboardShortcutsProvider } from './components/KeyboardShortcutsProvider';
 import './App.css';
 
 function App() {
   // Track online/offline status globally for basemap auto-switching
   useOnlineStatusListener();
+  // Track connection status for sync indicator
+  useConnectionStatusListener();
 
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
+      <KeyboardShortcutsProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
         <Route
           path="/"
           element={
@@ -165,8 +170,9 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </KeyboardShortcutsProvider>
     </BrowserRouter>
   );
 }
