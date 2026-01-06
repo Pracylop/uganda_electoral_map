@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
+import { Map, BarChart3 } from 'lucide-react';
 import { BroadcastMap } from './BroadcastMap';
+import { ComparisonCharts } from './ComparisonCharts';
 import { useBroadcastStore } from '../../stores/broadcastStore';
 import { useElections } from '../../hooks/useElectionData';
 
@@ -10,6 +12,7 @@ export function BroadcastComparisonView() {
   // Local state for showing selectors
   const [showLeftSelector, setShowLeftSelector] = useState(false);
   const [showRightSelector, setShowRightSelector] = useState(false);
+  const [comparisonMode, setComparisonMode] = useState<'maps' | 'charts'>('maps');
 
   // Get election details
   const leftElection = elections?.find(e => e.id === selectedElectionId);
@@ -39,9 +42,50 @@ export function BroadcastComparisonView() {
   }
 
   return (
-    <div className="w-full h-full flex">
-      {/* Left Map */}
-      <div className="relative w-1/2 h-full border-r border-gray-600">
+    <div className="w-full h-full flex flex-col">
+      {/* Mode Toggle */}
+      <div className="flex items-center justify-center gap-2 py-3 bg-gray-800 border-b border-gray-700">
+        <button
+          onClick={() => setComparisonMode('maps')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+            comparisonMode === 'maps'
+              ? 'bg-yellow-500 text-gray-900'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          }`}
+        >
+          <Map size={18} />
+          <span className="font-medium">Maps</span>
+        </button>
+        <button
+          onClick={() => setComparisonMode('charts')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+            comparisonMode === 'charts'
+              ? 'bg-yellow-500 text-gray-900'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          }`}
+        >
+          <BarChart3 size={18} />
+          <span className="font-medium">Charts</span>
+        </button>
+      </div>
+
+      {/* Charts View */}
+      {comparisonMode === 'charts' && (
+        <div className="flex-1">
+          <ComparisonCharts
+            leftElectionId={selectedElectionId}
+            rightElectionId={comparisonElectionId}
+            leftElectionName={leftElection?.name}
+            rightElectionName={rightElection?.name}
+          />
+        </div>
+      )}
+
+      {/* Maps View */}
+      {comparisonMode === 'maps' && (
+        <div className="flex-1 flex">
+          {/* Left Map */}
+          <div className="relative w-1/2 h-full border-r border-gray-600">
         <BroadcastMap
           electionId={selectedElectionId}
           label={leftElection?.name || 'Left Election'}
@@ -141,6 +185,8 @@ export function BroadcastComparisonView() {
             setShowRightSelector(false);
           }}
         />
+      )}
+        </div>
       )}
     </div>
   );

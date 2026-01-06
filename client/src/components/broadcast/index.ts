@@ -13,3 +13,4 @@ export { AnnotationCanvas } from './AnnotationCanvas';
 export { AnnotationToolbar } from './AnnotationToolbar';
 export { ElectionSelector } from './ElectionSelector';
 export { RegionSearch } from './RegionSearch';
+export { ComparisonCharts } from './ComparisonCharts';

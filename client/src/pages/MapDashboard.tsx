@@ -357,9 +357,7 @@ export function MapDashboard() {
           const clusterId = features[0].properties?.cluster_id;
           const source = map.getSource('polling-stations') as maplibregl.GeoJSONSource;
 
-          source.getClusterExpansionZoom(clusterId, (err, zoom) => {
-            if (err) return;
-
+          source.getClusterExpansionZoom(clusterId).then((zoom) => {
             map.easeTo({
               center: (features[0].geometry as GeoJSON.Point).coordinates as [number, number],
               zoom: zoom
