@@ -160,7 +160,9 @@ export function IssuesDashboard() {
   const [totalCount, setTotalCount] = useState(0);
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
-  const [mapType, setMapType] = useState<'choropleth' | 'points'>('choropleth');
+  const [mapType, setMapType] = useState<'choropleth' | 'points' | 'heatmap'>('choropleth');
+  const [heatmapIntensity, setHeatmapIntensity] = useState(1);
+  const [heatmapRadius, setHeatmapRadius] = useState(20);
   const [choroplethMetadata, setChoroplethMetadata] = useState<{ totalIssues: number; unitsWithIssues: number; maxIssuesPerUnit: number } | null>(null);
 
   // In-memory cache for choropleth data
@@ -267,10 +269,10 @@ export function IssuesDashboard() {
       // Remove existing layers (event handlers are cleaned up with layer removal)
       try {
         ['issues-choropleth-fill', 'issues-choropleth-line', 'issues-choropleth-labels',
-         'issues-clusters', 'issues-cluster-count', 'issues-points'].forEach(layerId => {
+         'issues-clusters', 'issues-cluster-count', 'issues-points', 'issues-heatmap'].forEach(layerId => {
           if (map.getLayer(layerId)) map.removeLayer(layerId);
         });
-        ['issues-choropleth', 'issues'].forEach(sourceId => {
+        ['issues-choropleth', 'issues', 'issues-heatmap'].forEach(sourceId => {
           if (map.getSource(sourceId)) map.removeSource(sourceId);
         });
       } catch (e) {
@@ -564,14 +566,13 @@ export function IssuesDashboard() {
     const loadMapData = async () => {
       // Remove existing layers
       try {
-        if (map.getLayer('issues-clusters')) map.removeLayer('issues-clusters');
-        if (map.getLayer('issues-cluster-count')) map.removeLayer('issues-cluster-count');
-        if (map.getLayer('issues-points')) map.removeLayer('issues-points');
-        if (map.getSource('issues')) map.removeSource('issues');
-        if (map.getLayer('issues-choropleth-fill')) map.removeLayer('issues-choropleth-fill');
-        if (map.getLayer('issues-choropleth-line')) map.removeLayer('issues-choropleth-line');
-        if (map.getLayer('issues-choropleth-labels')) map.removeLayer('issues-choropleth-labels');
-        if (map.getSource('issues-choropleth')) map.removeSource('issues-choropleth');
+        ['issues-clusters', 'issues-cluster-count', 'issues-points', 'issues-heatmap',
+         'issues-choropleth-fill', 'issues-choropleth-line', 'issues-choropleth-labels'].forEach(layerId => {
+          if (map.getLayer(layerId)) map.removeLayer(layerId);
+        });
+        ['issues', 'issues-choropleth', 'issues-heatmap'].forEach(sourceId => {
+          if (map.getSource(sourceId)) map.removeSource(sourceId);
+        });
       } catch (e) {
         // Layers may not exist
       }
@@ -697,6 +698,118 @@ export function IssuesDashboard() {
     loadMapData();
   }, [mapLoaded, mapType, issues, selectedCategory, selectedSeverity, dateRange]);
 
+  // Load heatmap on map
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded || mapType !== 'heatmap') return;
+    const map = mapRef.current;
+
+    const loadHeatmap = async () => {
+      // Remove existing layers
+      try {
+        ['issues-clusters', 'issues-cluster-count', 'issues-points', 'issues-heatmap',
+         'issues-choropleth-fill', 'issues-choropleth-line', 'issues-choropleth-labels'].forEach(layerId => {
+          if (map.getLayer(layerId)) map.removeLayer(layerId);
+        });
+        ['issues', 'issues-choropleth', 'issues-heatmap'].forEach(sourceId => {
+          if (map.getSource(sourceId)) map.removeSource(sourceId);
+        });
+      } catch (e) {
+        // Layers may not exist
+      }
+
+      try {
+        const params: any = {};
+        if (selectedCategory) params.categoryId = selectedCategory;
+        if (dateRange.start) params.startDate = dateRange.start;
+        if (dateRange.end) params.endDate = dateRange.end;
+
+        const geojsonData = await api.getIssuesGeoJSON(params);
+
+        let features = geojsonData.features;
+        if (selectedSeverity) {
+          features = features.filter(f => f.properties.severity === selectedSeverity);
+        }
+
+        // Add severity weight to each feature for weighted heatmap
+        const geojson: GeoJSON.FeatureCollection = {
+          type: 'FeatureCollection',
+          features: features.map(f => ({
+            ...f,
+            properties: {
+              ...f.properties,
+              weight: f.properties.severity || 1, // Use severity as weight
+            },
+          })),
+        };
+
+        map.addSource('issues-heatmap', {
+          type: 'geojson',
+          data: geojson,
+        });
+
+        // Heatmap layer with configurable intensity and radius
+        map.addLayer({
+          id: 'issues-heatmap',
+          type: 'heatmap',
+          source: 'issues-heatmap',
+          paint: {
+            // Increase weight based on severity
+            'heatmap-weight': [
+              'interpolate',
+              ['linear'],
+              ['get', 'weight'],
+              1, 0.2,
+              3, 0.5,
+              5, 1
+            ],
+            // Increase intensity as zoom increases
+            'heatmap-intensity': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              0, heatmapIntensity * 0.5,
+              9, heatmapIntensity * 2
+            ],
+            // Color ramp for heatmap - red/yellow theme for issues
+            'heatmap-color': [
+              'interpolate',
+              ['linear'],
+              ['heatmap-density'],
+              0, 'rgba(0, 0, 0, 0)',
+              0.2, 'rgba(254, 240, 217, 0.6)',
+              0.4, 'rgba(253, 204, 138, 0.7)',
+              0.6, 'rgba(252, 141, 89, 0.8)',
+              0.8, 'rgba(227, 74, 51, 0.9)',
+              1, 'rgba(179, 0, 0, 1)'
+            ],
+            // Radius increases with zoom
+            'heatmap-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              0, heatmapRadius * 0.5,
+              9, heatmapRadius * 3
+            ],
+            // Fade out at high zoom
+            'heatmap-opacity': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              7, 1,
+              15, 0.5
+            ],
+          },
+        });
+
+        console.log(`Heatmap: Loaded ${geojson.features.length} points`);
+      } catch (error) {
+        console.error('Failed to load heatmap:', error);
+      }
+    };
+
+    loadHeatmap();
+  }, [mapLoaded, mapType, selectedCategory, selectedSeverity, dateRange, heatmapIntensity, heatmapRadius]);
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-UG', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -756,6 +869,14 @@ export function IssuesDashboard() {
                   }`}
                 >
                   Points
+                </button>
+                <button
+                  onClick={() => setMapType('heatmap')}
+                  className={`px-3 py-1.5 rounded text-xs font-medium ${
+                    mapType === 'heatmap' ? 'bg-yellow-500 text-gray-900' : 'bg-gray-700 text-gray-300'
+                  }`}
+                >
+                  Heatmap
                 </button>
               </div>
             )}
@@ -913,7 +1034,7 @@ export function IssuesDashboard() {
 
             {/* Legend */}
             <div className="absolute bottom-4 left-4 bg-gray-800/95 backdrop-blur-sm rounded-lg p-3 z-10">
-              {mapType === 'choropleth' ? (
+              {mapType === 'choropleth' && (
                 <>
                   <div className="text-xs text-gray-400 mb-2">Issue Density</div>
                   <div className="space-y-1">
@@ -939,7 +1060,45 @@ export function IssuesDashboard() {
                     </div>
                   </div>
                 </>
-              ) : (
+              )}
+              {mapType === 'heatmap' && (
+                <>
+                  <div className="text-xs text-gray-400 mb-2">Incident Density</div>
+                  <div
+                    className="w-24 h-3 rounded mb-2"
+                    style={{
+                      background: 'linear-gradient(to right, rgba(254,240,217,0.6), rgba(253,204,138,0.7), rgba(252,141,89,0.8), rgba(227,74,51,0.9), rgba(179,0,0,1))'
+                    }}
+                  />
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>Low</span>
+                    <span>High</span>
+                  </div>
+                  <div className="mt-3 pt-2 border-t border-gray-700">
+                    <div className="text-xs text-gray-400 mb-1">Intensity</div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2"
+                      step="0.1"
+                      value={heatmapIntensity}
+                      onChange={(e) => setHeatmapIntensity(parseFloat(e.target.value))}
+                      className="w-full h-1 bg-gray-600 rounded appearance-none cursor-pointer"
+                    />
+                    <div className="text-xs text-gray-400 mt-2 mb-1">Radius</div>
+                    <input
+                      type="range"
+                      min="10"
+                      max="50"
+                      step="5"
+                      value={heatmapRadius}
+                      onChange={(e) => setHeatmapRadius(parseInt(e.target.value))}
+                      className="w-full h-1 bg-gray-600 rounded appearance-none cursor-pointer"
+                    />
+                  </div>
+                </>
+              )}
+              {mapType === 'points' && (
                 <>
                   <div className="text-xs text-gray-400 mb-2">Severity</div>
                   <div className="space-y-1">

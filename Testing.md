@@ -150,3 +150,81 @@ This document contains testing protocols for features implemented in the Uganda 
 3. **Expected:** Navigation works consistently across all map views
 
 ---
+
+## Heat Map for Incidents (Step 6)
+
+**Date:** 2026-01-06
+**Feature:** Heatmap visualization for electoral issues/incidents
+
+### Prerequisites
+- Application running locally (`npm run dev` in client and server)
+- Logged in as any user
+- At least some issues in the database
+
+### Test Cases
+
+#### TC-HM-01: Enable Heatmap View
+1. Navigate to Issues page (`/issues`)
+2. Ensure "Map" view is selected (not List)
+3. Click "Heatmap" button in the map type toggle
+4. **Expected:** Map displays heatmap visualization showing incident density
+5. **Expected:** Red/orange gradient shows hot spots where issues are concentrated
+
+#### TC-HM-02: Heatmap Color Gradient
+1. With heatmap enabled, observe the visualization
+2. **Expected:** Areas with more issues appear in warmer colors (red/orange)
+3. **Expected:** Areas with fewer issues appear in cooler colors (yellow/transparent)
+4. **Expected:** Empty areas are transparent (basemap visible)
+
+#### TC-HM-03: Intensity Control
+1. With heatmap enabled, locate the legend (bottom-left)
+2. Find the "Intensity" slider
+3. Drag slider to minimum (left)
+4. **Expected:** Heatmap becomes more transparent/subtle
+5. Drag slider to maximum (right)
+6. **Expected:** Heatmap becomes more intense/vibrant
+7. Console shows heatmap reloads with new intensity value
+
+#### TC-HM-04: Radius Control
+1. With heatmap enabled, locate the "Radius" slider in legend
+2. Drag slider to minimum (left)
+3. **Expected:** Heat spots become tighter/more focused
+4. Drag slider to maximum (right)
+5. **Expected:** Heat spots spread out more
+
+#### TC-HM-05: Filter Interaction
+1. With heatmap enabled, select a category from the filter dropdown
+2. **Expected:** Heatmap updates to show only that category's issues
+3. Select a severity level
+4. **Expected:** Heatmap further filters to that severity
+5. Click "Clear" to remove filters
+6. **Expected:** Heatmap shows all issues again
+
+#### TC-HM-06: Zoom Behavior
+1. With heatmap enabled, zoom out to see entire country
+2. **Expected:** Heat spots merge together at low zoom
+3. Zoom in to a specific region
+4. **Expected:** Heat spots become more detailed/separated
+5. At high zoom, heatmap should fade slightly (0.5 opacity)
+
+#### TC-HM-07: Legend Display
+1. With heatmap enabled, observe the legend
+2. **Expected:** Shows gradient bar from light to dark
+3. **Expected:** Labels show "Low" and "High" density
+4. **Expected:** Intensity and Radius sliders are visible
+
+#### TC-HM-08: Switch Between Map Types
+1. Start with Choropleth view
+2. Switch to Heatmap
+3. **Expected:** Choropleth removed, heatmap displayed
+4. Switch to Points
+5. **Expected:** Heatmap removed, point markers displayed
+6. Switch back to Choropleth
+7. **Expected:** Points removed, choropleth displayed
+
+### Notes
+- Heatmap uses severity as weight (higher severity = more intense)
+- Heatmap color ramp: transparent → light yellow → orange → red
+- Default intensity: 1.0, Default radius: 20
+
+---

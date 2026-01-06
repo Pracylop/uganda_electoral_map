@@ -44,3 +44,6 @@ prisma/migrations/**
 # Package manager locks (keep)
 # package-lock.json
 # yarn.lock
+
+# Offline map tiles (large files)
+client/public/tiles/*.pmtiles
