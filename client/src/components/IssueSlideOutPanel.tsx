@@ -45,15 +45,15 @@ export function IssueSlideOutPanel({ isOpen, onClose, data }: IssueSlideOutPanel
       return;
     }
 
-    setLoading(true);
-    const params: any = { limit: 10 };
-
-    // Filter by the appropriate level
-    if (data.level === 2) {
-      params.districtId = data.unitId;
+    // Only fetch if there are issues to show and we're at district level
+    // (API only supports districtId filtering currently)
+    if (data.issueCount === 0 || data.level !== 2) {
+      setRecentIssues([]);
+      return;
     }
-    // Note: For lower levels, we'd need API support for constituencyId, etc.
-    // For now, we can still show recent issues at district level
+
+    setLoading(true);
+    const params: any = { limit: 10, districtId: data.unitId };
 
     api.getIssues(params)
       .then((result) => {
@@ -169,37 +169,51 @@ export function IssueSlideOutPanel({ isOpen, onClose, data }: IssueSlideOutPanel
             </div>
           )}
 
-          {/* Recent Issues */}
-          <div className="p-4">
-            <h3 className="text-sm font-semibold text-gray-300 mb-3">Recent Issues</h3>
-            {loading ? (
-              <div className="text-center py-4 text-gray-400 text-sm">Loading...</div>
-            ) : recentIssues.length > 0 ? (
-              <div className="space-y-2">
-                {recentIssues.map((issue) => (
-                  <div
-                    key={issue.id}
-                    className="p-3 bg-gray-700/50 rounded-lg hover:bg-gray-700 cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span
-                        className="px-2 py-0.5 rounded text-xs font-medium"
-                        style={{ backgroundColor: issue.issueCategory.color || '#808080', color: '#fff' }}
-                      >
-                        {issue.issueCategory.name}
-                      </span>
-                      <span className="text-xs text-gray-400">
-                        {new Date(issue.date).toLocaleDateString('en-UG', { day: 'numeric', month: 'short' })}
-                      </span>
+          {/* Recent Issues - only show if region has issues and we're at district level */}
+          {data.issueCount > 0 && data.level === 2 && (
+            <div className="p-4">
+              <h3 className="text-sm font-semibold text-gray-300 mb-3">Recent Issues</h3>
+              {loading ? (
+                <div className="text-center py-4 text-gray-400 text-sm">Loading...</div>
+              ) : recentIssues.length > 0 ? (
+                <div className="space-y-2">
+                  {recentIssues.map((issue) => (
+                    <div
+                      key={issue.id}
+                      className="p-3 bg-gray-700/50 rounded-lg hover:bg-gray-700 cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className="px-2 py-0.5 rounded text-xs font-medium"
+                          style={{ backgroundColor: issue.issueCategory.color || '#808080', color: '#fff' }}
+                        >
+                          {issue.issueCategory.name}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(issue.date).toLocaleDateString('en-UG', { day: 'numeric', month: 'short' })}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-300 line-clamp-2">{issue.summary}</p>
                     </div>
-                    <p className="text-sm text-gray-300 line-clamp-2">{issue.summary}</p>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-gray-400 text-sm">No issues found</div>
+              )}
+            </div>
+          )}
+
+          {/* Message when no issues in region */}
+          {data.issueCount === 0 && (
+            <div className="p-4">
+              <div className="text-center py-8 text-gray-500">
+                <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-sm">No issues reported in this region</p>
               </div>
-            ) : (
-              <div className="text-center py-4 text-gray-400 text-sm">No recent issues</div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="p-4 border-t border-gray-700">

@@ -551,9 +551,9 @@ export function IssuesDashboard() {
           <>
             <Map onLoad={handleMapLoad} className="absolute inset-0" />
 
-            {/* Breadcrumb (bottom-left) */}
+            {/* Breadcrumb (bottom-left, above legend) */}
             {mapType === 'choropleth' && drillDownStack.length > 1 && (
-              <div className="absolute bottom-20 left-4 z-10">
+              <div className="absolute bottom-44 left-4 z-10">
                 <IssueBreadcrumb
                   stack={drillDownStack}
                   onNavigate={handleBreadcrumbNavigate}
