@@ -551,14 +551,13 @@ export function IssuesDashboard() {
           <>
             <Map onLoad={handleMapLoad} className="absolute inset-0" />
 
-            {/* Breadcrumb (bottom-left, above legend) */}
-            {mapType === 'choropleth' && drillDownStack.length > 1 && (
-              <div className="absolute bottom-44 left-4 z-10">
-                <IssueBreadcrumb
-                  stack={drillDownStack}
-                  onNavigate={handleBreadcrumbNavigate}
-                />
-              </div>
+            {/* Breadcrumb */}
+            {mapType === 'choropleth' && (
+              <IssueBreadcrumb
+                stack={drillDownStack}
+                onNavigate={handleBreadcrumbNavigate}
+                currentLevel={currentLevel.level}
+              />
             )}
 
             {/* Issue Detail Panel (for points mode) */}
