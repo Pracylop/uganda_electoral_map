@@ -45,6 +45,7 @@ export function BroadcastApp() {
     setViewMode,
     resetToNational,
     reset,
+    clearRegionHighlights,
   } = useBroadcastStore();
 
   const isLeft = sidebarPosition === 'left';
@@ -378,7 +379,10 @@ export function BroadcastApp() {
         onSelectStrokeWidth={setStrokeWidth}
         onUndo={undo}
         onRedo={redo}
-        onClearAll={clearAll}
+        onClearAll={() => {
+          clearAll();
+          clearRegionHighlights();
+        }}
       />
     </div>
   );

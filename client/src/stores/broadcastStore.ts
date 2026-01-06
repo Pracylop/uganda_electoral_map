@@ -58,6 +58,10 @@ interface BroadcastState {
   basemapSource: BasemapSource; // 'auto' | 'online' | 'offline'
   isOnline: boolean; // Current online/offline status
 
+  // Region highlighting (for annotation mode)
+  highlightedRegions: { id: number; color: string }[];
+  highlightColor: string; // Current highlight color
+
   // Actions
   toggleSidebar: () => void;
   setSidebarExpanded: (expanded: boolean) => void;
@@ -101,6 +105,11 @@ interface BroadcastState {
   toggleIssuesInteractionMode: () => void;
   setIssuesInteractionMode: (mode: IssuesInteractionMode) => void;
 
+  // Region highlight actions
+  toggleRegionHighlight: (regionId: number, color?: string) => void;
+  clearRegionHighlights: () => void;
+  setHighlightColor: (color: string) => void;
+
   // Reset
   reset: () => void;
 }
@@ -140,6 +149,8 @@ const initialState = {
   basemapOpacity: 50, // Default 50% - balanced between basemap and choropleth
   basemapSource: (localStorage.getItem('basemapSource') as BasemapSource) || 'auto',
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  highlightedRegions: [] as { id: number; color: string }[],
+  highlightColor: '#FBBF24', // NRM Yellow by default
 };
 
 export const useBroadcastStore = create<BroadcastState>((set, get) => ({
@@ -365,6 +376,29 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
   })),
 
   setIssuesInteractionMode: (mode) => set({ issuesInteractionMode: mode }),
+
+  // Region highlight actions
+  toggleRegionHighlight: (regionId, color) => set((state) => {
+    const existing = state.highlightedRegions.find(r => r.id === regionId);
+    if (existing) {
+      // Remove if already highlighted
+      return {
+        highlightedRegions: state.highlightedRegions.filter(r => r.id !== regionId),
+      };
+    } else {
+      // Add with current highlight color
+      return {
+        highlightedRegions: [
+          ...state.highlightedRegions,
+          { id: regionId, color: color || state.highlightColor }
+        ],
+      };
+    }
+  }),
+
+  clearRegionHighlights: () => set({ highlightedRegions: [] }),
+
+  setHighlightColor: (color) => set({ highlightColor: color }),
 
   // Reset
   reset: () => set(initialState),

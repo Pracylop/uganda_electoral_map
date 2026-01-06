@@ -271,6 +271,41 @@ function AnnotationShape({ annotation, isPreview }: AnnotationShapeProps) {
       );
     }
 
+    case 'rectangle': {
+      if (points.length < 2) {
+        // Just show a dot while starting
+        return (
+          <circle
+            cx={points[0].x}
+            cy={points[0].y}
+            r={5}
+            fill={color}
+            opacity={opacity}
+          />
+        );
+      }
+      // Calculate rectangle from first to last point
+      const start = points[0];
+      const end = points[points.length - 1];
+      const x = Math.min(start.x, end.x);
+      const y = Math.min(start.y, end.y);
+      const width = Math.abs(end.x - start.x);
+      const height = Math.abs(end.y - start.y);
+      return (
+        <rect
+          x={x}
+          y={y}
+          width={width}
+          height={height}
+          fill={color}
+          fillOpacity={0.3}
+          stroke={color}
+          strokeWidth={strokeWidth}
+          opacity={opacity}
+        />
+      );
+    }
+
     default:
       return null;
   }

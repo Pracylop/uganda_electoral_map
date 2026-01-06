@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   Pencil,
   Type,
+  Square,
   Undo2,
   Redo2,
   Trash2,
@@ -33,6 +34,7 @@ interface AnnotationToolbarProps {
 const tools: { tool: AnnotationTool; icon: typeof Circle; label: string }[] = [
   { tool: 'circle', icon: Circle, label: 'Circle' },
   { tool: 'arrow', icon: ArrowUpRight, label: 'Arrow' },
+  { tool: 'rectangle', icon: Square, label: 'Highlight' },
   { tool: 'freehand', icon: Pencil, label: 'Freehand' },
   { tool: 'text', icon: Type, label: 'Text' },
 ];

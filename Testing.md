@@ -228,3 +228,111 @@ This document contains testing protocols for features implemented in the Uganda 
 - Default intensity: 1.0, Default radius: 20
 
 ---
+
+## Annotation Tools (Step 7)
+
+**Date:** 2026-01-06
+**Feature:** Drawing and highlighting tools for broadcast presentations
+
+### Prerequisites
+- Application running locally (`npm run dev` in client and server)
+- Navigate to Broadcast mode (`/broadcast`)
+- Select an election
+
+### Test Cases
+
+#### TC-AN-01: Enter Annotation Mode
+1. In broadcast mode, press `A` key or click annotation icon in sidebar
+2. **Expected:** Annotation toolbar appears at bottom of screen
+3. **Expected:** Map panning/zooming is disabled
+4. **Expected:** Cursor changes to crosshair when over map
+
+#### TC-AN-02: Circle Tool
+1. Enter annotation mode
+2. Click Circle tool in toolbar
+3. Click and drag on map
+4. **Expected:** Circle preview appears while dragging
+5. Release mouse
+6. **Expected:** Circle annotation rendered with selected color
+
+#### TC-AN-03: Arrow Tool
+1. Click Arrow tool in toolbar
+2. Click start point, drag to end point
+3. **Expected:** Arrow with head rendered from start to end
+4. Verify arrow head points in correct direction
+
+#### TC-AN-04: Rectangle/Highlight Tool
+1. Click Highlight (square) tool in toolbar
+2. Click and drag to create rectangle
+3. **Expected:** Semi-transparent filled rectangle appears
+4. **Expected:** Rectangle has colored border
+
+#### TC-AN-05: Freehand Tool
+1. Click Freehand (pencil) tool in toolbar
+2. Click and drag freely on map
+3. **Expected:** Smooth line follows mouse movement
+4. Release to finish drawing
+
+#### TC-AN-06: Text Tool
+1. Click Text tool in toolbar
+2. Click on map where text should appear
+3. **Expected:** Prompt asks for text input
+4. Enter text and confirm
+5. **Expected:** Text rendered at clicked location with shadow
+
+#### TC-AN-07: Color Selection
+1. With any drawing tool selected
+2. Click different color buttons (Yellow, Blue, Red, etc.)
+3. Draw an annotation
+4. **Expected:** Annotation uses selected color
+
+#### TC-AN-08: Stroke Width
+1. Select freehand or circle tool
+2. Click different stroke width options (Thin/Medium/Thick)
+3. Draw annotations
+4. **Expected:** Line thickness varies accordingly
+
+#### TC-AN-09: Undo/Redo
+1. Draw several annotations
+2. Click Undo button or press `Z`
+3. **Expected:** Last annotation removed
+4. Click Redo button or press `Y`
+5. **Expected:** Annotation restored
+6. Verify multiple undo/redo operations work
+
+#### TC-AN-10: Clear All
+1. Draw multiple annotations and highlight some regions
+2. Click Clear All (trash) button
+3. **Expected:** All SVG annotations removed
+4. **Expected:** All region highlights removed
+
+#### TC-AN-11: Region Highlighting
+1. Enter annotation mode
+2. Click on a colored region (district/constituency)
+3. **Expected:** Region gets highlighted with current color
+4. Click same region again
+5. **Expected:** Highlight removed (toggle behavior)
+6. Click multiple different regions
+7. **Expected:** Multiple regions can be highlighted simultaneously
+
+#### TC-AN-12: Exit Annotation Mode
+1. With annotations drawn
+2. Press `Escape` or click X button
+3. **Expected:** Annotation toolbar closes
+4. **Expected:** Map interactions re-enabled
+5. **Expected:** Annotations remain visible on map
+
+### Keyboard Shortcuts
+| Key | Action |
+|-----|--------|
+| A | Toggle annotation mode |
+| Z | Undo |
+| Y | Redo |
+| Escape | Exit annotation mode |
+
+### Notes
+- Annotations are SVG overlays, not saved to database
+- Region highlights use map layers, cleared with "Clear All"
+- Default highlight color is NRM Yellow (#FBBF24)
+
+---

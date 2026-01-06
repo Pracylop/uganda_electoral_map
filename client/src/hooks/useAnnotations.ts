@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 
-export type AnnotationTool = 'circle' | 'arrow' | 'freehand' | 'text';
+export type AnnotationTool = 'circle' | 'arrow' | 'freehand' | 'text' | 'rectangle';
 
 export interface Point {
   x: number;

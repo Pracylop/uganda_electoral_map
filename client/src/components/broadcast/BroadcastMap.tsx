@@ -59,6 +59,10 @@ export function BroadcastMap({
     drillDown: storeDrillDown,
     navigateToDistrict,
     basemapOpacity,
+    annotationMode,
+    highlightedRegions,
+    highlightColor,
+    toggleRegionHighlight,
   } = useBroadcastStore();
 
   // Use prop election ID if provided, otherwise use store
@@ -320,6 +324,81 @@ export function BroadcastMap({
     setIsDataLoading(false);
   }, []);
 
+  // Render highlighted regions (annotation mode)
+  useEffect(() => {
+    const mapInstance = map.current;
+    if (!mapInstance || !isLoaded) return;
+
+    // Remove existing annotation highlight layers
+    try {
+      if (mapInstance.getLayer('annotation-highlights-outline')) mapInstance.removeLayer('annotation-highlights-outline');
+      if (mapInstance.getLayer('annotation-highlights')) mapInstance.removeLayer('annotation-highlights');
+      if (mapInstance.getSource('annotation-highlights')) mapInstance.removeSource('annotation-highlights');
+    } catch (e) {
+      // Layers may not exist
+    }
+
+    // If no highlights, nothing to render
+    if (highlightedRegions.length === 0) return;
+
+    // Get the results source data to find geometries for highlighted regions
+    const resultsSource = mapInstance.getSource('results') as maplibregl.GeoJSONSource;
+    if (!resultsSource) return;
+
+    // Get features from the results source
+    const features = mapInstance.querySourceFeatures('results');
+    if (!features || features.length === 0) return;
+
+    // Filter to only highlighted regions and create highlight features
+    const highlightFeatures: GeoJSON.Feature[] = [];
+    highlightedRegions.forEach(({ id, color }) => {
+      const feature = features.find(f => f.properties?.unitId === id);
+      if (feature && feature.geometry) {
+        highlightFeatures.push({
+          type: 'Feature',
+          geometry: feature.geometry as GeoJSON.Geometry,
+          properties: {
+            unitId: id,
+            highlightColor: color,
+          },
+        });
+      }
+    });
+
+    if (highlightFeatures.length === 0) return;
+
+    // Add highlight source and layer
+    mapInstance.addSource('annotation-highlights', {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: highlightFeatures,
+      },
+    });
+
+    mapInstance.addLayer({
+      id: 'annotation-highlights',
+      type: 'fill',
+      source: 'annotation-highlights',
+      paint: {
+        'fill-color': ['get', 'highlightColor'],
+        'fill-opacity': 0.5,
+      },
+    });
+
+    // Add outline for highlighted regions
+    mapInstance.addLayer({
+      id: 'annotation-highlights-outline',
+      type: 'line',
+      source: 'annotation-highlights',
+      paint: {
+        'line-color': ['get', 'highlightColor'],
+        'line-width': 3,
+      },
+    });
+
+  }, [isLoaded, highlightedRegions]);
+
   // Set up click handler for drill-down
   useEffect(() => {
     const mapInstance = map.current;
@@ -341,7 +420,13 @@ export function BroadcastMap({
         const unitName = props.unitName;
         const featureLevel = props.level || currentLevel;
 
-        console.log('BroadcastMap: Region clicked', { unitId, unitName, featureLevel });
+        console.log('BroadcastMap: Region clicked', { unitId, unitName, featureLevel, annotationMode });
+
+        // In annotation mode, toggle region highlight instead of drilling down
+        if (annotationMode) {
+          toggleRegionHighlight(unitId, highlightColor);
+          return;
+        }
 
         // If not at parish level (5), drill down
         if (featureLevel < 5) {
@@ -484,7 +569,7 @@ export function BroadcastMap({
       mapInstance.off('mousemove', 'results-fill', handleMouseMove);
       mapInstance.off('mouseleave', 'results-fill', handleMouseLeave);
     };
-  }, [isLoaded, currentLevel, onRegionClick, storeDrillDown, navigateToDistrict, selectedElectionId, disableBasemapNavigation]);
+  }, [isLoaded, currentLevel, onRegionClick, storeDrillDown, navigateToDistrict, selectedElectionId, disableBasemapNavigation, annotationMode, toggleRegionHighlight, highlightColor]);
 
   // Load results when election or drill-down changes
   useEffect(() => {
