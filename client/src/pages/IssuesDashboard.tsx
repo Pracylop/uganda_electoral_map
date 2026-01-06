@@ -412,12 +412,6 @@ export function IssuesDashboard() {
     setDrillDownStack(prev => prev.slice(0, index + 1));
   };
 
-  const handleBack = () => {
-    if (drillDownStack.length > 1) {
-      setDrillDownStack(prev => prev.slice(0, -1));
-    }
-  };
-
   const hasFilters = selectedCategory || selectedSeverity || dateRange.start || dateRange.end;
 
   return (
@@ -427,17 +421,6 @@ export function IssuesDashboard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h1 className="text-lg font-bold text-white">Electoral Issues</h1>
-
-            {/* Breadcrumb Navigation (choropleth only) */}
-            {viewMode === 'map' && mapType === 'choropleth' && (
-              <div className="border-l border-gray-700 pl-4">
-                <IssueBreadcrumb
-                  stack={drillDownStack}
-                  onNavigate={handleBreadcrumbNavigate}
-                  onBack={handleBack}
-                />
-              </div>
-            )}
 
             {/* View Toggle */}
             <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
@@ -567,6 +550,15 @@ export function IssuesDashboard() {
         {viewMode === 'map' ? (
           <>
             <Map onLoad={handleMapLoad} className="absolute inset-0" />
+
+            {/* Breadcrumb (top-left, below toolbar) */}
+            {mapType === 'choropleth' && (
+              <IssueBreadcrumb
+                stack={drillDownStack}
+                onNavigate={handleBreadcrumbNavigate}
+                currentLevel={currentLevel.level}
+              />
+            )}
 
             {/* Issue Detail Panel (for points mode) */}
             {selectedIssue && (

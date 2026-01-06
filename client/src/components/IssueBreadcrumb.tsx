@@ -1,3 +1,5 @@
+import { ChevronRight, Home } from 'lucide-react';
+
 interface DrillDownItem {
   level: number;
   regionId: number | null;
@@ -7,50 +9,63 @@ interface DrillDownItem {
 interface IssueBreadcrumbProps {
   stack: DrillDownItem[];
   onNavigate: (index: number) => void;
-  onBack: () => void;
+  currentLevel: number;
 }
 
-export function IssueBreadcrumb({ stack, onNavigate, onBack }: IssueBreadcrumbProps) {
-  const hasHistory = stack.length > 1;
+const LEVEL_NAMES: Record<number, string> = {
+  2: 'Districts',
+  3: 'Constituencies',
+  4: 'Subcounties',
+  5: 'Parishes',
+};
+
+export function IssueBreadcrumb({ stack, onNavigate, currentLevel }: IssueBreadcrumbProps) {
+  // Don't show if only at root level
+  if (stack.length <= 1) return null;
 
   return (
-    <div className="flex items-center gap-1">
-      {/* Back button */}
-      {hasHistory && (
-        <button
-          onClick={onBack}
-          className="p-2 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
-          title="Go back"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-      )}
-
-      {/* Breadcrumb items */}
-      <div className="flex items-center gap-1 text-sm">
+    <nav className="absolute top-4 left-4 z-30">
+      <div className="flex items-center gap-1 bg-gray-900/95 backdrop-blur-sm px-4 py-3 rounded-xl border border-gray-700 shadow-2xl">
+        {/* Home button */}
         <button
           onClick={() => onNavigate(0)}
-          className={`px-2 py-1 rounded ${stack.length === 1 ? 'text-white font-medium' : 'text-gray-400 hover:text-white'}`}
+          className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-800 hover:bg-yellow-500 hover:text-gray-900 text-gray-300 transition-colors"
+          title="Back to National View"
         >
-          Uganda
+          <Home size={20} />
         </button>
-        {stack.slice(1).map((item, index) => (
+
+        {/* Breadcrumb items */}
+        {stack.map((item, index) => (
           <span key={index} className="flex items-center">
-            <span className="text-gray-600 mx-1">›</span>
+            <ChevronRight size={18} className="text-gray-500 mx-1" />
             <button
-              onClick={() => onNavigate(index + 1)}
-              className={`px-2 py-1 rounded ${
-                index === stack.length - 2 ? 'text-white font-medium' : 'text-gray-400 hover:text-white'
-              }`}
+              onClick={() => onNavigate(index)}
+              className={`
+                px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                ${index === stack.length - 1
+                  ? 'bg-yellow-500 text-gray-900 cursor-default'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
+                }
+              `}
+              disabled={index === stack.length - 1}
             >
               {item.regionName}
             </button>
           </span>
         ))}
+
+        {/* Current level indicator */}
+        {currentLevel <= 5 && (
+          <span className="flex items-center">
+            <ChevronRight size={18} className="text-gray-500 mx-1" />
+            <span className="px-3 py-2 text-sm text-blue-400 font-medium">
+              {LEVEL_NAMES[currentLevel]}
+            </span>
+          </span>
+        )}
       </div>
-    </div>
+    </nav>
   );
 }
 
