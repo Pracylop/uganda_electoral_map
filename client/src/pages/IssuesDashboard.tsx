@@ -163,6 +163,11 @@ export function IssuesDashboard() {
   const [mapType, setMapType] = useState<'choropleth' | 'points' | 'heatmap'>('choropleth');
   const [heatmapIntensity, setHeatmapIntensity] = useState(1);
   const [heatmapRadius, setHeatmapRadius] = useState(20);
+
+  // Draggable heatmap settings position
+  const [heatmapSettingsPos, setHeatmapSettingsPos] = useState({ x: 0, y: 100 }); // right side, offset from top
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const [choroplethMetadata, setChoroplethMetadata] = useState<{ totalIssues: number; unitsWithIssues: number; maxIssuesPerUnit: number } | null>(null);
 
   // In-memory cache for choropleth data
@@ -823,6 +828,43 @@ export function IssuesDashboard() {
     }
   };
 
+  // Drag handlers for heatmap settings widget
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      posX: heatmapSettingsPos.x,
+      posY: heatmapSettingsPos.y,
+    };
+  }, [heatmapSettingsPos]);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const dx = dragStartRef.current.x - e.clientX;
+      const dy = e.clientY - dragStartRef.current.y;
+      setHeatmapSettingsPos({
+        x: Math.max(0, dragStartRef.current.posX + dx),
+        y: Math.max(0, dragStartRef.current.posY + dy),
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
   return (
     <div className="h-screen flex flex-col bg-gray-900">
       {/* Header & Toolbar */}
@@ -1032,89 +1074,122 @@ export function IssuesDashboard() {
               </div>
             )}
 
-            {/* Legend */}
-            <div className="absolute bottom-4 left-4 bg-gray-800/95 backdrop-blur-sm rounded-lg p-3 z-10">
-              {mapType === 'choropleth' && (
-                <>
-                  <div className="text-xs text-gray-400 mb-2">Issue Density</div>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="w-3 h-3 rounded" style={{ backgroundColor: '#dc2626' }} />
-                      <span className="text-gray-300">Critical</span>
+            {/* Legend (bottom-left) - for choropleth and points */}
+            {(mapType === 'choropleth' || mapType === 'points') && (
+              <div className="absolute bottom-4 left-4 bg-gray-800/95 backdrop-blur-sm rounded-lg p-3 z-10">
+                {mapType === 'choropleth' && (
+                  <>
+                    <div className="text-xs text-gray-400 mb-2">Issue Density</div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded" style={{ backgroundColor: '#dc2626' }} />
+                        <span className="text-gray-300">Critical</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded" style={{ backgroundColor: '#ea580c' }} />
+                        <span className="text-gray-300">High</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded" style={{ backgroundColor: '#f59e0b' }} />
+                        <span className="text-gray-300">Moderate</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded" style={{ backgroundColor: '#fde047' }} />
+                        <span className="text-gray-300">Low</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="w-3 h-3 rounded" style={{ backgroundColor: '#d1d5db' }} />
+                        <span className="text-gray-300">None</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="w-3 h-3 rounded" style={{ backgroundColor: '#ea580c' }} />
-                      <span className="text-gray-300">High</span>
+                  </>
+                )}
+                {mapType === 'points' && (
+                  <>
+                    <div className="text-xs text-gray-400 mb-2">Severity</div>
+                    <div className="space-y-1">
+                      {[5, 4, 3, 2, 1].map(sev => (
+                        <div key={sev} className="flex items-center gap-2 text-xs">
+                          <span
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: severityColors[sev] }}
+                          />
+                          <span className="text-gray-300">{severityLabels[sev]}</span>
+                        </div>
+                      ))}
                     </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="w-3 h-3 rounded" style={{ backgroundColor: '#f59e0b' }} />
-                      <span className="text-gray-300">Moderate</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="w-3 h-3 rounded" style={{ backgroundColor: '#fde047' }} />
-                      <span className="text-gray-300">Low</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="w-3 h-3 rounded" style={{ backgroundColor: '#d1d5db' }} />
-                      <span className="text-gray-300">None</span>
-                    </div>
-                  </div>
-                </>
-              )}
-              {mapType === 'heatmap' && (
-                <>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Heatmap Settings Panel (right side, draggable) */}
+            {mapType === 'heatmap' && (
+              <div
+                className="absolute bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-lg z-20 select-none"
+                style={{
+                  right: heatmapSettingsPos.x + 16,
+                  top: heatmapSettingsPos.y,
+                  cursor: isDragging ? 'grabbing' : 'default',
+                }}
+              >
+                {/* Drag handle */}
+                <div
+                  className="flex items-center justify-between px-3 py-2 border-b border-gray-700 cursor-grab active:cursor-grabbing"
+                  onMouseDown={handleDragStart}
+                >
+                  <span className="text-xs font-medium text-gray-300">Heatmap Settings</span>
+                  <svg className="w-4 h-4 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M7 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
+                  </svg>
+                </div>
+                <div className="p-3">
                   <div className="text-xs text-gray-400 mb-2">Incident Density</div>
                   <div
-                    className="w-24 h-3 rounded mb-2"
+                    className="w-28 h-3 rounded mb-2"
                     style={{
                       background: 'linear-gradient(to right, rgba(254,240,217,0.6), rgba(253,204,138,0.7), rgba(252,141,89,0.8), rgba(227,74,51,0.9), rgba(179,0,0,1))'
                     }}
                   />
-                  <div className="flex justify-between text-xs text-gray-400">
+                  <div className="flex justify-between text-xs text-gray-400 mb-3">
                     <span>Low</span>
                     <span>High</span>
                   </div>
-                  <div className="mt-3 pt-2 border-t border-gray-700">
-                    <div className="text-xs text-gray-400 mb-1">Intensity</div>
-                    <input
-                      type="range"
-                      min="0.5"
-                      max="2"
-                      step="0.1"
-                      value={heatmapIntensity}
-                      onChange={(e) => setHeatmapIntensity(parseFloat(e.target.value))}
-                      className="w-full h-1 bg-gray-600 rounded appearance-none cursor-pointer"
-                    />
-                    <div className="text-xs text-gray-400 mt-2 mb-1">Radius</div>
-                    <input
-                      type="range"
-                      min="10"
-                      max="50"
-                      step="5"
-                      value={heatmapRadius}
-                      onChange={(e) => setHeatmapRadius(parseInt(e.target.value))}
-                      className="w-full h-1 bg-gray-600 rounded appearance-none cursor-pointer"
-                    />
-                  </div>
-                </>
-              )}
-              {mapType === 'points' && (
-                <>
-                  <div className="text-xs text-gray-400 mb-2">Severity</div>
-                  <div className="space-y-1">
-                    {[5, 4, 3, 2, 1].map(sev => (
-                      <div key={sev} className="flex items-center gap-2 text-xs">
-                        <span
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: severityColors[sev] }}
-                        />
-                        <span className="text-gray-300">{severityLabels[sev]}</span>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="flex justify-between text-xs text-gray-400 mb-1">
+                        <span>Intensity</span>
+                        <span className="text-gray-500">{heatmapIntensity.toFixed(1)}</span>
                       </div>
-                    ))}
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="2"
+                        step="0.1"
+                        value={heatmapIntensity}
+                        onChange={(e) => setHeatmapIntensity(parseFloat(e.target.value))}
+                        className="w-full h-1.5 bg-gray-600 rounded appearance-none cursor-pointer accent-orange-500"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-xs text-gray-400 mb-1">
+                        <span>Radius</span>
+                        <span className="text-gray-500">{heatmapRadius}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="10"
+                        max="50"
+                        step="5"
+                        value={heatmapRadius}
+                        onChange={(e) => setHeatmapRadius(parseInt(e.target.value))}
+                        className="w-full h-1.5 bg-gray-600 rounded appearance-none cursor-pointer accent-orange-500"
+                      />
+                    </div>
                   </div>
-                </>
-              )}
-            </div>
+                </div>
+              </div>
+            )}
 
             {/* Slide-out Panel */}
             <IssueSlideOutPanel
