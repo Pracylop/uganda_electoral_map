@@ -17,13 +17,6 @@ interface CandidateResult {
   percentage: number;
 }
 
-interface MarginOfVictory {
-  votes: number;
-  percentage: number;
-  leadingCandidate: string;
-  runnerUp: string;
-}
-
 interface PartySummary {
   partyId: number | null;
   partyName: string;

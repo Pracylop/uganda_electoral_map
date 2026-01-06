@@ -77,6 +77,51 @@ router.post('/persons', authenticate, authorize('editor', 'admin'), async (req, 
   }
 });
 
+// Search regions/admin units by name (for autocomplete)
+router.get('/regions/search', authenticate, async (req, res) => {
+  try {
+    const query = req.query.q as string;
+
+    if (!query || query.trim().length < 2) {
+      res.json([]);
+      return;
+    }
+
+    // Search for admin units matching the query
+    const units = await prisma.administrativeUnit.findMany({
+      where: {
+        name: { contains: query, mode: 'insensitive' }
+      },
+      select: {
+        id: true,
+        name: true,
+        level: true,
+        parent: {
+          select: { name: true }
+        }
+      },
+      orderBy: [
+        { level: 'asc' },  // Districts first, then constituencies, etc.
+        { name: 'asc' }
+      ],
+      take: 20  // Limit results for performance
+    });
+
+    // Format response to match frontend expectations
+    const results = units.map(unit => ({
+      id: unit.id,
+      name: unit.name,
+      level: unit.level,
+      parentName: unit.parent?.name || null
+    }));
+
+    res.json(results);
+  } catch (error) {
+    console.error('Search regions error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get administrative units (for electoral area selection)
 router.get('/admin-units', authenticate, async (req, res) => {
   try {

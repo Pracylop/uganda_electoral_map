@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import MapComponent from '../components/Map';
+import { MapSettingsWidget } from '../components/MapSettingsWidget';
+import { useEffectiveBasemap } from '../hooks/useOnlineStatus';
 import { api } from '../lib/api';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -195,6 +197,14 @@ export function DemographicsDashboard() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [metric, setMetric] = useState<DemographicMetric>('population');
+
+  // Track basemap changes to reload map data when basemap changes
+  const effectiveBasemap = useEffectiveBasemap();
+  const prevBasemapRef = useRef<string | null>(null);
+
+  // Navigation popup ref for basemap click feedback
+  const navigationPopupRef = useRef<maplibregl.Popup | null>(null);
+
   const [nationalStats, setNationalStats] = useState<NationalStats | null>(null);
   const [isLoadingChoropleth, setIsLoadingChoropleth] = useState(false);
 
@@ -257,6 +267,15 @@ export function DemographicsDashboard() {
     mapRef.current = map;
     setMapLoaded(true);
   }, []);
+
+  // Detect basemap changes and reset map loaded state to trigger reload
+  useEffect(() => {
+    if (prevBasemapRef.current !== null && prevBasemapRef.current !== effectiveBasemap) {
+      // Basemap changed - reset loaded state to trigger reload when map recreates
+      setMapLoaded(false);
+    }
+    prevBasemapRef.current = effectiveBasemap;
+  }, [effectiveBasemap]);
 
   // Pre-load state - tracks which levels are loaded
   const [preloadProgress, setPreloadProgress] = useState({ loading: false, levelsLoaded: new Set<number>() });
@@ -444,6 +463,18 @@ export function DemographicsDashboard() {
 
     setIsLoadingChoropleth(false);
 
+    // Close navigation popup after map finishes rendering
+    if (navigationPopupRef.current) {
+      const closePopup = () => {
+        if (navigationPopupRef.current) {
+          navigationPopupRef.current.remove();
+          navigationPopupRef.current = null;
+        }
+        map.off('idle', closePopup);
+      };
+      map.once('idle', closePopup);
+    }
+
     // Trigger pre-load of all other levels after initial district load
     if (currentLevel === 2 && parentId === null) {
       preloadAllLevels();
@@ -563,10 +594,15 @@ export function DemographicsDashboard() {
       if (clickedDistrict && clickedDistrict.properties) {
         const { id, name } = clickedDistrict.properties as { id: number; name: string };
 
+        // Close any existing navigation popup
+        if (navigationPopupRef.current) {
+          navigationPopupRef.current.remove();
+        }
+
         // Show navigation popup
-        new maplibregl.Popup({ closeOnClick: true, closeButton: false })
+        navigationPopupRef.current = new maplibregl.Popup({ closeOnClick: true, closeButton: false })
           .setLngLat(e.lngLat)
-          .setHTML(`<div style="padding: 8px; font-family: system-ui;"><strong>Navigating to ${name}</strong></div>`)
+          .setHTML(`<div style="padding: 8px; font-family: system-ui; color: #333;"><strong>Navigating to ${name}</strong></div>`)
           .addTo(map);
 
         // Navigate to the district
@@ -577,6 +613,9 @@ export function DemographicsDashboard() {
     map.on('click', handleBasemapClick);
     return () => {
       map.off('click', handleBasemapClick);
+      if (navigationPopupRef.current) {
+        navigationPopupRef.current.remove();
+      }
     };
   }, [mapLoaded, navigateToDistrict]);
 
@@ -1009,6 +1048,9 @@ export function DemographicsDashboard() {
         {viewMode === 'map' ? (
           <div className="flex-1 relative">
             <MapComponent onLoad={handleMapLoad} className="absolute inset-0" />
+
+            {/* Map Settings Widget */}
+            <MapSettingsWidget position="bottom-left" />
 
             {isLoadingChoropleth && (
               <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">

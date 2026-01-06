@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { X, Search, MapPin, ChevronRight } from 'lucide-react';
 import { useBroadcastStore } from '../../stores/broadcastStore';
+import { api } from '../../lib/api';
 
 interface Region {
   id: number;
@@ -32,9 +33,9 @@ export function RegionSearch() {
     }
   }, [searchOpen]);
 
-  // Search function (would call API in real implementation)
+  // Search function using API
   const searchRegions = useCallback(async (searchQuery: string) => {
-    if (!searchQuery.trim()) {
+    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
       setResults([]);
       return;
     }
@@ -42,32 +43,19 @@ export function RegionSearch() {
     setIsSearching(true);
 
     try {
-      // API call would go here
-      const response = await fetch(
-        `/api/regions/search?q=${encodeURIComponent(searchQuery)}`
+      const data = await api.searchRegions(searchQuery);
+      setResults(
+        data.map((r) => ({
+          id: r.id,
+          name: r.name,
+          level: r.level,
+          levelName: LEVEL_NAMES[r.level] || 'Region',
+          parentName: r.parentName || undefined,
+        }))
       );
-
-      if (response.ok) {
-        const data = await response.json();
-        setResults(
-          data.map((r: any) => ({
-            id: r.id,
-            name: r.name,
-            level: r.level,
-            levelName: LEVEL_NAMES[r.level] || 'Region',
-            parentName: r.parentName,
-          }))
-        );
-      }
     } catch (error) {
       console.error('Search failed:', error);
-      // Fallback: show mock results for demo
-      setResults([
-        { id: 1, name: 'KAMPALA', level: 3, levelName: 'District', parentName: 'Central' },
-        { id: 2, name: 'WAKISO', level: 3, levelName: 'District', parentName: 'Central' },
-      ].filter((r) =>
-        r.name.toLowerCase().includes(searchQuery.toLowerCase())
-      ));
+      setResults([]);
     } finally {
       setIsSearching(false);
     }

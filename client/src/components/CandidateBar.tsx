@@ -25,7 +25,7 @@ const CandidateBar: React.FC<CandidateBarProps> = ({
   const [trend, setTrend] = useState<'up' | 'down' | null>(null);
   const [trendValue, setTrendValue] = useState(0);
   const prevVotes = useRef(totalVotes);
-  const trendTimeout = useRef<NodeJS.Timeout | null>(null);
+  const trendTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Track vote changes and show trend indicator
   useEffect(() => {

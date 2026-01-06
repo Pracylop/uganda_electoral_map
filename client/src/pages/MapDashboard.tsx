@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
 import Map from '../components/Map';
+import { MapSettingsWidget } from '../components/MapSettingsWidget';
 import NationalDashboard from '../components/NationalDashboard';
 import { GestureTutorial, useGestureTutorial } from '../components/GestureTutorial';
 import { GestureIndicator } from '../components/GestureIndicator';
@@ -10,6 +11,7 @@ import { useSwipeNavigation, SwipeIndicator } from '../hooks/useSwipeNavigation'
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useElectionsWithOffline } from '../hooks/useElectionData';
 import { invalidateElectionQueries } from '../lib/queryClient';
+import { useEffectiveBasemap } from '../hooks/useOnlineStatus';
 import type { DrillDownState, BreadcrumbItem } from '../hooks/useElectionMap';
 import {
   LEVEL_NAMES,
@@ -80,6 +82,51 @@ interface Election {
   _count: { candidates: number; results: number };
 }
 
+// Ray-casting algorithm for point-in-polygon test
+function pointInRing(x: number, y: number, ring: number[][]): boolean {
+  if (!ring || ring.length < 3) return false;
+
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const coord_i = ring[i];
+    const coord_j = ring[j];
+    if (!coord_i || !coord_j) continue;
+
+    const xi = coord_i[0], yi = coord_i[1];
+    const xj = coord_j[0], yj = coord_j[1];
+
+    if (xi === undefined || yi === undefined || xj === undefined || yj === undefined) continue;
+
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Check if point is inside a polygon geometry
+function pointInPolygon(point: [number, number], geometry: GeoJSON.Geometry): boolean {
+  const [x, y] = point;
+
+  try {
+    if (geometry.type === 'MultiPolygon') {
+      return geometry.coordinates.some(polygonCoords => {
+        const ring = polygonCoords?.[0];
+        if (!ring || !Array.isArray(ring) || ring.length < 3) return false;
+        return pointInRing(x, y, ring);
+      });
+    } else if (geometry.type === 'Polygon') {
+      const ring = geometry.coordinates?.[0];
+      if (!ring || !Array.isArray(ring) || ring.length < 3) return false;
+      return pointInRing(x, y, ring);
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
 export function MapDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedElection, setSelectedElection] = useState<number | null>(null);
@@ -110,6 +157,7 @@ export function MapDashboard() {
   const [rightDrillDown, setRightDrillDown] = useState<DrillDownState>(INITIAL_DRILL_DOWN);
   const [isSyncEnabled, setIsSyncEnabled] = useState(true);
   const [isSwingMode, setIsSwingMode] = useState(false); // Swing visualization toggle
+  const [showPollingStations, setShowPollingStations] = useState(false); // Polling station markers toggle
   const [leftMapLoaded, setLeftMapLoaded] = useState(false); // Track when left map is ready
   const [rightMapLoaded, setRightMapLoaded] = useState(false); // Track when right map is ready
   const rightMapRef = useRef<maplibregl.Map | null>(null);
@@ -117,6 +165,17 @@ export function MapDashboard() {
   const isSyncEnabledRef = useRef(true); // Ref for closure access
   const isProgrammaticMoveRef = useRef(false); // Disable sync during fitBounds
 
+  // Basemap click navigation refs
+  const basemapClickHandlerRef = useRef<((e: maplibregl.MapMouseEvent) => void) | null>(null);
+  const navigationPopupRef = useRef<maplibregl.Popup | null>(null);
+  const districtDataCacheRef = useRef<GeoJSON.FeatureCollection | null>(null);
+
+  // Results layer click handler ref (to prevent accumulating handlers)
+  const resultsClickHandlerRef = useRef<((e: maplibregl.MapLayerMouseEvent) => void) | null>(null);
+
+  // Track basemap changes to reload map data when basemap changes
+  const effectiveBasemap = useEffectiveBasemap();
+  const prevBasemapRef = useRef<string | null>(null);
 
   // WebSocket connection for real-time updates
   useWebSocket((message) => {
@@ -161,6 +220,218 @@ export function MapDashboard() {
       loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId);
     }
   }, [selectedElection, drillDown.currentLevel, drillDown.currentParentId, leftMapLoaded]);
+
+  // Detect basemap changes and reset map loaded state to trigger reload
+  useEffect(() => {
+    if (prevBasemapRef.current !== null && prevBasemapRef.current !== effectiveBasemap) {
+      // Basemap changed - reset loaded states to trigger reload when map recreates
+      setLeftMapLoaded(false);
+      setRightMapLoaded(false);
+    }
+    prevBasemapRef.current = effectiveBasemap;
+  }, [effectiveBasemap]);
+
+  // Polling station clustering layer
+  useEffect(() => {
+    if (!mapRef.current || !leftMapLoaded) return;
+    const map = mapRef.current;
+
+    // Helper to remove polling station layers
+    const removePollingStationLayers = () => {
+      try {
+        if (map.getLayer('polling-clusters')) map.removeLayer('polling-clusters');
+        if (map.getLayer('polling-cluster-count')) map.removeLayer('polling-cluster-count');
+        if (map.getLayer('polling-unclustered')) map.removeLayer('polling-unclustered');
+        if (map.getSource('polling-stations')) map.removeSource('polling-stations');
+      } catch (e) {
+        // Layers may not exist
+      }
+    };
+
+    // If not showing polling stations, remove layers and return
+    if (!showPollingStations || !selectedElection) {
+      removePollingStationLayers();
+      return;
+    }
+
+    // Fetch and display polling stations
+    const loadPollingStations = async () => {
+      try {
+        // Remove existing layers first
+        removePollingStationLayers();
+
+        // Fetch polling station GeoJSON
+        const response = await fetch(
+          `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/polling-stations/geojson?electionId=${selectedElection}`,
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+            }
+          }
+        );
+
+        if (!response.ok) throw new Error('Failed to load polling stations');
+        const geojson = await response.json();
+
+        console.log('Loaded polling stations:', geojson.features?.length || 0, 'parishes');
+
+        // Add clustered source
+        map.addSource('polling-stations', {
+          type: 'geojson',
+          data: geojson,
+          cluster: true,
+          clusterMaxZoom: 14, // Max zoom to cluster points
+          clusterRadius: 50,  // Cluster radius in pixels
+          clusterProperties: {
+            // Sum up station counts in clusters
+            totalStations: ['+', ['get', 'stationCount']],
+            totalVoters: ['+', ['get', 'totalVoters']]
+          }
+        });
+
+        // Clustered circles layer
+        map.addLayer({
+          id: 'polling-clusters',
+          type: 'circle',
+          source: 'polling-stations',
+          filter: ['has', 'point_count'],
+          paint: {
+            // Color based on cluster size
+            'circle-color': [
+              'step',
+              ['get', 'point_count'],
+              '#51bbd6',   // Blue for small clusters
+              10, '#f1f075', // Yellow for medium
+              50, '#f28cb1'  // Pink for large
+            ],
+            // Size based on cluster size
+            'circle-radius': [
+              'step',
+              ['get', 'point_count'],
+              15,    // 15px for < 10 points
+              10, 20, // 20px for 10-50 points
+              50, 25  // 25px for 50+ points
+            ],
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#fff'
+          }
+        });
+
+        // Cluster count labels
+        map.addLayer({
+          id: 'polling-cluster-count',
+          type: 'symbol',
+          source: 'polling-stations',
+          filter: ['has', 'point_count'],
+          layout: {
+            'text-field': '{point_count_abbreviated}',
+            'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+            'text-size': 12
+          },
+          paint: {
+            'text-color': '#333'
+          }
+        });
+
+        // Individual (unclustered) station markers
+        map.addLayer({
+          id: 'polling-unclustered',
+          type: 'circle',
+          source: 'polling-stations',
+          filter: ['!', ['has', 'point_count']],
+          paint: {
+            'circle-color': '#ff8c00', // Orange for individual stations
+            'circle-radius': 8,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#fff'
+          }
+        });
+
+        // Click on cluster to zoom in
+        map.on('click', 'polling-clusters', (e) => {
+          const features = map.queryRenderedFeatures(e.point, {
+            layers: ['polling-clusters']
+          });
+          if (!features.length) return;
+
+          const clusterId = features[0].properties?.cluster_id;
+          const source = map.getSource('polling-stations') as maplibregl.GeoJSONSource;
+
+          source.getClusterExpansionZoom(clusterId, (err, zoom) => {
+            if (err) return;
+
+            map.easeTo({
+              center: (features[0].geometry as GeoJSON.Point).coordinates as [number, number],
+              zoom: zoom
+            });
+          });
+        });
+
+        // Click on individual station to show popup
+        map.on('click', 'polling-unclustered', (e) => {
+          if (!e.features || e.features.length === 0) return;
+          const props = e.features[0].properties;
+          const coords = (e.features[0].geometry as GeoJSON.Point).coordinates.slice() as [number, number];
+
+          // Parse stations array (stored as string in GeoJSON properties)
+          let stationsList = '';
+          try {
+            const stations = JSON.parse(props?.stations || '[]');
+            stationsList = stations.slice(0, 5).map((s: any) => `<li>${s.name}</li>`).join('');
+            if (stations.length > 5) {
+              stationsList += `<li class="text-gray-400">+${stations.length - 5} more...</li>`;
+            }
+          } catch (e) {
+            stationsList = '<li>Station data unavailable</li>';
+          }
+
+          new maplibregl.Popup()
+            .setLngLat(coords)
+            .setHTML(`
+              <div style="font-family: system-ui; max-width: 250px;">
+                <h3 style="font-weight: bold; margin: 0 0 8px 0; color: #333;">${props?.parishName || 'Parish'}</h3>
+                <p style="margin: 0 0 4px 0; font-size: 12px; color: #666;">
+                  ${props?.subcounty || ''} ${props?.constituency ? '• ' + props.constituency : ''}
+                </p>
+                <div style="display: flex; gap: 16px; margin: 8px 0; font-size: 13px;">
+                  <div><strong>${props?.stationCount || 0}</strong> stations</div>
+                  <div><strong>${(props?.totalVoters || 0).toLocaleString()}</strong> voters</div>
+                </div>
+                <div style="font-size: 12px; color: #555;">
+                  <strong>Stations:</strong>
+                  <ul style="margin: 4px 0 0 16px; padding: 0;">${stationsList}</ul>
+                </div>
+              </div>
+            `)
+            .addTo(map);
+        });
+
+        // Change cursor on hover
+        map.on('mouseenter', 'polling-clusters', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'polling-clusters', () => {
+          map.getCanvas().style.cursor = '';
+        });
+        map.on('mouseenter', 'polling-unclustered', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'polling-unclustered', () => {
+          map.getCanvas().style.cursor = '';
+        });
+
+      } catch (err) {
+        console.error('Failed to load polling stations:', err);
+      }
+    };
+
+    loadPollingStations();
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      removePollingStationLayers();
+    };
+  }, [showPollingStations, selectedElection, leftMapLoaded]);
 
   // Keep sync ref in sync with state (for closure access)
   useEffect(() => {
@@ -218,6 +489,11 @@ export function MapDashboard() {
       const geojson = data.type === 'FeatureCollection' ? data : data;
       console.log('GeoJSON features count:', geojson.features?.length || 0);
 
+      // Cache district-level data for basemap click navigation
+      if (level === 2 && parentId === null) {
+        districtDataCacheRef.current = geojson;
+      }
+
       // Remove existing results layers if present
       try {
         if (map.getLayer('results-fill')) map.removeLayer('results-fill');
@@ -271,8 +547,13 @@ export function MapDashboard() {
         }
       });
 
+      // Remove existing click handler to prevent accumulation
+      if (resultsClickHandlerRef.current) {
+        map.off('click', 'results-fill', resultsClickHandlerRef.current);
+      }
+
       // Add click handler for drill-down and popups
-      map.on('click', 'results-fill', (e) => {
+      const handleResultsClick = (e: maplibregl.MapLayerMouseEvent) => {
         if (!e.features || e.features.length === 0) return;
 
         const feature = e.features[0];
@@ -310,7 +591,10 @@ export function MapDashboard() {
           .setLngLat(e.lngLat)
           .setHTML(createResultsPopupHTML(props))
           .addTo(map);
-      });
+      };
+
+      resultsClickHandlerRef.current = handleResultsClick;
+      map.on('click', 'results-fill', handleResultsClick);
 
       // Track hovered feature for highlight effect
       let hoveredFeatureId: string | number | null = null;
@@ -389,6 +673,18 @@ export function MapDashboard() {
       // Re-enable sync after animation completes
       setTimeout(() => { isProgrammaticMoveRef.current = false; }, 1600);
       setIsMapDataLoading(false);
+
+      // Close navigation popup after map finishes rendering
+      if (navigationPopupRef.current) {
+        const closePopup = () => {
+          if (navigationPopupRef.current) {
+            navigationPopupRef.current.remove();
+            navigationPopupRef.current = null;
+          }
+          map.off('idle', closePopup);
+        };
+        map.once('idle', closePopup);
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to load election results'
@@ -448,6 +744,23 @@ export function MapDashboard() {
     }
   }, [drillDown.breadcrumb]);
 
+  // Navigate directly to a district (from basemap click)
+  const navigateToDistrict = useCallback((districtId: number, districtName: string) => {
+    const newDrillDownState: DrillDownState = {
+      currentLevel: 3, // Show constituencies
+      currentParentId: districtId,
+      breadcrumb: [
+        { id: 0, name: 'Uganda', level: 0 },
+        { id: districtId, name: districtName, level: 2 }
+      ]
+    };
+    setDrillDown(newDrillDownState);
+    // Mirror to right map if sync is enabled
+    if (isSyncEnabledRef.current) {
+      setRightDrillDown(newDrillDownState);
+    }
+  }, []);
+
   // Navigate to next/previous election (for swipe navigation)
   const navigateElection = useCallback((direction: 'next' | 'prev') => {
     if (!selectedElection || elections.length === 0) return;
@@ -463,6 +776,84 @@ export function MapDashboard() {
 
     handleElectionChange(elections[newIndex].id);
   }, [selectedElection, elections]);
+
+  // Basemap click handler - navigate to district when clicking outside choropleth
+  useEffect(() => {
+    if (!mapRef.current || !leftMapLoaded) return;
+    const map = mapRef.current;
+
+    // Remove existing handler if any
+    if (basemapClickHandlerRef.current) {
+      map.off('click', basemapClickHandlerRef.current);
+      basemapClickHandlerRef.current = null;
+    }
+
+    const handleBasemapClick = (e: maplibregl.MapMouseEvent) => {
+      // Check if results layer exists
+      const hasResultsLayer = map.getLayer('results-fill');
+
+      // Check if click was on the results layer
+      let features: maplibregl.MapGeoJSONFeature[] = [];
+      try {
+        if (hasResultsLayer) {
+          features = map.queryRenderedFeatures(e.point, {
+            layers: ['results-fill']
+          });
+        }
+      } catch (err) {
+        // Layer may not exist
+      }
+
+      // If clicked on results layer, let the other handler process it
+      if (features && features.length > 0) {
+        return;
+      }
+
+      // Need cached district data for point-in-polygon check
+      if (!districtDataCacheRef.current) {
+        return;
+      }
+
+      // Click was on basemap - check cached district data
+      const { lng, lat } = e.lngLat;
+
+      // Find which district contains the clicked point
+      const clickedDistrict = districtDataCacheRef.current.features.find(feature => {
+        if (!feature.geometry) return false;
+        return pointInPolygon([lng, lat], feature.geometry);
+      });
+
+      if (clickedDistrict && clickedDistrict.properties) {
+        const { unitId, unitName } = clickedDistrict.properties as { unitId: number; unitName: string };
+
+        // Close any existing navigation popup
+        if (navigationPopupRef.current) {
+          navigationPopupRef.current.remove();
+        }
+
+        // Show navigation popup
+        navigationPopupRef.current = new maplibregl.Popup({ closeOnClick: true, closeButton: false })
+          .setLngLat(e.lngLat)
+          .setHTML(`<div style="padding: 8px; font-family: system-ui; color: #333;"><strong>Navigating to ${unitName}</strong></div>`)
+          .addTo(map);
+
+        // Navigate to the district
+        navigateToDistrict(unitId, unitName);
+      }
+    };
+
+    basemapClickHandlerRef.current = handleBasemapClick;
+    map.on('click', handleBasemapClick);
+
+    return () => {
+      if (basemapClickHandlerRef.current) {
+        map.off('click', basemapClickHandlerRef.current);
+      }
+      if (navigationPopupRef.current) {
+        navigationPopupRef.current.remove();
+      }
+    };
+  }, [leftMapLoaded, navigateToDistrict]);
 
   // Swipe navigation - enable in presentation mode for touch gestures
   const swipeState = useSwipeNavigation({
@@ -865,6 +1256,24 @@ export function MapDashboard() {
                 </button>
               </div>
             </div>
+            {/* Polling Stations Toggle */}
+            {viewMode === 'map' && (
+              <div>
+                <label className="block text-sm font-medium mb-2">Stations</label>
+                <button
+                  onClick={() => setShowPollingStations(!showPollingStations)}
+                  disabled={!selectedElection}
+                  className={`px-4 py-2 rounded-md transition-colors ${
+                    showPollingStations
+                      ? 'bg-orange-600 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  } ${!selectedElection ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title="Show polling station markers"
+                >
+                  {showPollingStations ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            )}
             {/* Comparison Mode Toggle */}
             {viewMode === 'map' && (
               <div>
@@ -1008,6 +1417,11 @@ export function MapDashboard() {
               {/* Left Map Panel */}
             <div className={`relative ${isComparisonMode ? 'w-1/2' : 'w-full'}`}>
               <Map key="left-map" onLoad={handleMapLoad} className="absolute inset-0" />
+
+              {/* Map Settings Widget */}
+              {!isPresentationMode && (
+                <MapSettingsWidget position="bottom-left" />
+              )}
 
               {/* Loading Indicator */}
               {isMapDataLoading && (

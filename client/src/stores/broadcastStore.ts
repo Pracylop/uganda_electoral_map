@@ -3,6 +3,7 @@ import { create } from 'zustand';
 export type ViewMode = 'map' | 'dashboard' | 'comparison' | 'issues' | 'demographics';
 export type SidebarPosition = 'left' | 'right';
 export type IssuesInteractionMode = 'stats' | 'view';
+export type BasemapSource = 'auto' | 'online' | 'offline';
 
 export interface DrillDownLevel {
   level: number; // 1=national, 2=region, 3=district, 4=constituency, 5=parish
@@ -27,8 +28,9 @@ interface BroadcastState {
     startDate: string | null;
     endDate: string | null;
   };
-  selectedIssueDistrictId: number | null; // For district-specific summary
+  selectedIssueDistrictId: number | null; // For region-specific summary (can be any level)
   selectedIssueDistrictName: string | null;
+  selectedIssueLevel: number | null; // Admin level of the selected region (2=district, 3=constituency, etc.)
   issuesInteractionMode: IssuesInteractionMode; // 'stats' = click shows panel, 'view' = click shows tooltip
 
   // View State
@@ -53,6 +55,8 @@ interface BroadcastState {
 
   // Basemap settings
   basemapOpacity: number; // 0-100
+  basemapSource: BasemapSource; // 'auto' | 'online' | 'offline'
+  isOnline: boolean; // Current online/offline status
 
   // Actions
   toggleSidebar: () => void;
@@ -83,6 +87,8 @@ interface BroadcastState {
 
   // Basemap actions
   setBasemapOpacity: (opacity: number) => void;
+  setBasemapSource: (source: BasemapSource) => void;
+  setOnlineStatus: (isOnline: boolean) => void;
 
   // Issues filter actions
   toggleCategoryFilter: (categoryId: number) => void;
@@ -90,7 +96,7 @@ interface BroadcastState {
   clearCategoryFilters: () => void;
   setIssuesDateRange: (startDate: string | null, endDate: string | null) => void;
   clearIssuesDateRange: () => void;
-  selectIssueDistrict: (districtId: number | null, districtName: string | null) => void;
+  selectIssueDistrict: (districtId: number | null, districtName: string | null, level?: number | null) => void;
   clearIssueDistrict: () => void;
   toggleIssuesInteractionMode: () => void;
   setIssuesInteractionMode: (mode: IssuesInteractionMode) => void;
@@ -115,6 +121,7 @@ const initialState = {
   },
   selectedIssueDistrictId: null as number | null,
   selectedIssueDistrictName: null as string | null,
+  selectedIssueLevel: null as number | null,
   issuesInteractionMode: 'stats' as IssuesInteractionMode,
   viewMode: 'map' as ViewMode,
   selectedElectionId: null,
@@ -131,6 +138,8 @@ const initialState = {
     boundaries: true,
   },
   basemapOpacity: 50, // Default 50% - balanced between basemap and choropleth
+  basemapSource: (localStorage.getItem('basemapSource') as BasemapSource) || 'auto',
+  isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
 };
 
 export const useBroadcastStore = create<BroadcastState>((set, get) => ({
@@ -307,6 +316,15 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
   // Basemap opacity (0-100)
   setBasemapOpacity: (opacity) => set({ basemapOpacity: Math.max(0, Math.min(100, opacity)) }),
 
+  // Basemap source preference (persisted to localStorage)
+  setBasemapSource: (source) => {
+    localStorage.setItem('basemapSource', source);
+    set({ basemapSource: source });
+  },
+
+  // Online status (updated by online/offline event listeners)
+  setOnlineStatus: (isOnline) => set({ isOnline }),
+
   // Issues filter actions
   toggleCategoryFilter: (categoryId) => set((state) => {
     const current = state.selectedCategoryIds;
@@ -330,14 +348,16 @@ export const useBroadcastStore = create<BroadcastState>((set, get) => ({
     issuesDateRange: { startDate: null, endDate: null },
   }),
 
-  selectIssueDistrict: (districtId, districtName) => set({
+  selectIssueDistrict: (districtId, districtName, level = null) => set({
     selectedIssueDistrictId: districtId,
     selectedIssueDistrictName: districtName,
+    selectedIssueLevel: level,
   }),
 
   clearIssueDistrict: () => set({
     selectedIssueDistrictId: null,
     selectedIssueDistrictName: null,
+    selectedIssueLevel: null,
   }),
 
   toggleIssuesInteractionMode: () => set((state) => ({

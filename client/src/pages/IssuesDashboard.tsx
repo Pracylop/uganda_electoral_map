@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import maplibregl from 'maplibre-gl';
-import Map from '../components/Map';
+import MapComponent from '../components/Map';
+import { MapSettingsWidget } from '../components/MapSettingsWidget';
+import { useEffectiveBasemap } from '../hooks/useOnlineStatus';
 import { IssueSlideOutPanel } from '../components/IssueSlideOutPanel';
 import { IssueBreadcrumb } from '../components/IssueBreadcrumb';
 import { api } from '../lib/api';
@@ -62,16 +64,119 @@ const severityLabels: Record<number, string> = {
   5: 'Critical',
 };
 
+// Uganda bounding box [west, south, east, north]
+const UGANDA_BOUNDS: [[number, number], [number, number]] = [
+  [29.5, -1.5],  // Southwest corner
+  [35.0, 4.3]    // Northeast corner
+];
+
+// Cache key generator - by LEVEL only (not parentId)
+function getLevelCacheKey(level: number): string {
+  return `issues-level-${level}`;
+}
+
+// Type for cached data
+interface CachedIssueData {
+  geojson: GeoJSON.FeatureCollection;
+  metadata: { totalIssues: number; unitsWithIssues: number; maxIssuesPerUnit: number };
+}
+
+// Helper to filter features by parentId
+function filterFeaturesByParent(geojson: GeoJSON.FeatureCollection, parentId: number): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: geojson.features.filter(f => f.properties?.parentId === parentId),
+  };
+}
+
+// Helper to recalculate metadata from filtered features
+function recalculateMetadata(features: GeoJSON.Feature[]): { totalIssues: number; unitsWithIssues: number; maxIssuesPerUnit: number } {
+  let totalIssues = 0;
+  let unitsWithIssues = 0;
+  let maxIssuesPerUnit = 0;
+  features.forEach(f => {
+    const count = f.properties?.issueCount || 0;
+    totalIssues += count;
+    if (count > 0) unitsWithIssues++;
+    if (count > maxIssuesPerUnit) maxIssuesPerUnit = count;
+  });
+  return { totalIssues, unitsWithIssues, maxIssuesPerUnit };
+}
+
+// Ray-casting algorithm for point-in-polygon test
+function pointInRing(x: number, y: number, ring: number[][]): boolean {
+  if (!ring || ring.length < 3) return false;
+
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const coord_i = ring[i];
+    const coord_j = ring[j];
+    if (!coord_i || !coord_j) continue;
+
+    const xi = coord_i[0], yi = coord_i[1];
+    const xj = coord_j[0], yj = coord_j[1];
+
+    if (xi === undefined || yi === undefined || xj === undefined || yj === undefined) continue;
+
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Check if point is inside a polygon geometry
+function pointInPolygon(point: [number, number], geometry: GeoJSON.Geometry): boolean {
+  const [x, y] = point;
+
+  try {
+    if (geometry.type === 'MultiPolygon') {
+      return geometry.coordinates.some(polygonCoords => {
+        const ring = polygonCoords?.[0];
+        if (!ring || !Array.isArray(ring) || ring.length < 3) return false;
+        return pointInRing(x, y, ring);
+      });
+    } else if (geometry.type === 'Polygon') {
+      const ring = geometry.coordinates?.[0];
+      if (!ring || !Array.isArray(ring) || ring.length < 3) return false;
+      return pointInRing(x, y, ring);
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
 export function IssuesDashboard() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [categories, setCategories] = useState<IssueCategory[]>([]);
+
+  // Track basemap changes to reload map data when basemap changes
+  const effectiveBasemap = useEffectiveBasemap();
+  const prevBasemapRef = useRef<string | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [mapType, setMapType] = useState<'choropleth' | 'points'>('choropleth');
   const [choroplethMetadata, setChoroplethMetadata] = useState<{ totalIssues: number; unitsWithIssues: number; maxIssuesPerUnit: number } | null>(null);
+
+  // In-memory cache for choropleth data
+  const dataCache = useRef(new Map<string, CachedIssueData>());
+
+  // Click handler ref for proper cleanup
+  const clickHandlerRef = useRef<((e: maplibregl.MapLayerMouseEvent) => void) | null>(null);
+
+  // Basemap click handler ref for proper cleanup
+  const basemapClickHandlerRef = useRef<((e: maplibregl.MapMouseEvent) => void) | null>(null);
+
+  // Navigation popup ref for basemap click feedback
+  const navigationPopupRef = useRef<maplibregl.Popup | null>(null);
+
+  // Loading state
+  const [isLoading, setIsLoading] = useState(false);
 
   // Drill-down state
   const [drillDownStack, setDrillDownStack] = useState<DrillDownItem[]>([
@@ -121,15 +226,45 @@ export function IssuesDashboard() {
   const handleMapLoad = useCallback((map: maplibregl.Map) => {
     mapRef.current = map;
     setMapLoaded(true);
+    // Zoom to show entire Uganda on initial load
+    map.fitBounds(UGANDA_BOUNDS, { padding: 50, duration: 1000 });
   }, []);
+
+  // Detect basemap changes and reset map loaded state to trigger reload
+  useEffect(() => {
+    if (prevBasemapRef.current !== null && prevBasemapRef.current !== effectiveBasemap) {
+      // Basemap changed - reset loaded state to trigger reload when map recreates
+      setMapLoaded(false);
+    }
+    prevBasemapRef.current = effectiveBasemap;
+  }, [effectiveBasemap]);
+
+  // Navigate directly to a district (from basemap click)
+  const navigateToDistrict = useCallback((districtId: number, districtName: string) => {
+    // Reset stack to: Uganda > District (showing constituencies at level 3)
+    setDrillDownStack([
+      { level: 2, regionId: null, regionName: 'Uganda' },
+      { level: 3, regionId: districtId, regionName: districtName }
+    ]);
+  }, []);
+
+  // Check if filters are applied (need fresh API calls when filters active)
+  const hasFilters = selectedCategory || selectedSeverity || dateRange.start || dateRange.end;
 
   // Load choropleth on map
   useEffect(() => {
     if (!mapRef.current || !mapLoaded || mapType !== 'choropleth') return;
     const map = mapRef.current;
+    let aborted = false;
 
     const loadChoropleth = async () => {
-      // Remove existing layers first
+      // Remove existing click handler first (using stored ref)
+      if (clickHandlerRef.current && map.getLayer('issues-choropleth-fill')) {
+        map.off('click', 'issues-choropleth-fill', clickHandlerRef.current);
+        clickHandlerRef.current = null;
+      }
+
+      // Remove existing layers (event handlers are cleaned up with layer removal)
       try {
         ['issues-choropleth-fill', 'issues-choropleth-line', 'issues-choropleth-labels',
          'issues-clusters', 'issues-cluster-count', 'issues-points'].forEach(layerId => {
@@ -143,22 +278,74 @@ export function IssuesDashboard() {
       }
 
       try {
-        const params: any = {
-          level: currentLevel.level
-        };
-        if (currentLevel.regionId) params.parentId = currentLevel.regionId;
-        if (selectedCategory) params.categoryId = selectedCategory;
-        if (selectedSeverity) params.severity = selectedSeverity;
-        if (dateRange.start) params.startDate = dateRange.start;
-        if (dateRange.end) params.endDate = dateRange.end;
+        let displayData: GeoJSON.FeatureCollection;
+        let metadata: { totalIssues: number; unitsWithIssues: number; maxIssuesPerUnit: number };
 
-        const choroplethData = await api.getIssuesChoropleth(params);
-        setChoroplethMetadata(choroplethData.metadata);
+        // If filters are active, always fetch fresh data (no caching with filters)
+        if (hasFilters) {
+          setIsLoading(true);
+          const params: any = { level: currentLevel.level };
+          if (currentLevel.regionId) params.parentId = currentLevel.regionId;
+          if (selectedCategory) params.categoryId = selectedCategory;
+          if (selectedSeverity) params.severity = selectedSeverity;
+          if (dateRange.start) params.startDate = dateRange.start;
+          if (dateRange.end) params.endDate = dateRange.end;
+
+          const choroplethData = await api.getIssuesChoropleth(params);
+          displayData = choroplethData as GeoJSON.FeatureCollection;
+          metadata = choroplethData.metadata;
+        } else {
+          // No filters - use caching with client-side filtering
+          const cacheKey = getLevelCacheKey(currentLevel.level);
+          let levelData = dataCache.current.get(cacheKey);
+
+          // If level not cached, fetch ALL data for this level
+          if (!levelData) {
+            setIsLoading(true);
+            console.log(`Issues: Fetching level ${currentLevel.level} data...`);
+            const data = await api.getIssuesChoropleth({ level: currentLevel.level });
+            if (data?.features?.length > 0) {
+              levelData = { geojson: data as GeoJSON.FeatureCollection, metadata: data.metadata };
+              dataCache.current.set(cacheKey, levelData);
+              console.log(`Issues: Cached level ${currentLevel.level} - ${levelData.geojson.features.length} features`);
+            }
+          } else {
+            console.log(`Issues: Using cached level ${currentLevel.level} data`);
+          }
+
+          if (!levelData) {
+            console.error('No data for this level');
+            return;
+          }
+
+          // Filter by parentId if needed (client-side, instant!)
+          if (currentLevel.regionId !== null) {
+            displayData = filterFeaturesByParent(levelData.geojson, currentLevel.regionId);
+            metadata = recalculateMetadata(displayData.features);
+            console.log(`Issues: Filtered to ${displayData.features.length} features for parent ${currentLevel.regionId}`);
+          } else {
+            displayData = levelData.geojson;
+            metadata = levelData.metadata;
+          }
+        }
+
+        // Check if aborted before continuing
+        if (aborted) return;
+
+        setChoroplethMetadata(metadata);
+
+        if (!displayData || displayData.features.length === 0) {
+          console.warn('No features to display');
+          return;
+        }
+
+        // Check again after potential async operations
+        if (aborted) return;
 
         // Add source
         map.addSource('issues-choropleth', {
           type: 'geojson',
-          data: choroplethData as unknown as GeoJSON.FeatureCollection,
+          data: displayData,
         });
 
         // Fill layer
@@ -184,10 +371,10 @@ export function IssuesDashboard() {
         });
 
         // Fit bounds to features if drilling down
-        if (choroplethData.features.length > 0 && currentLevel.regionId) {
+        if (displayData.features.length > 0 && currentLevel.regionId) {
           const bounds = new maplibregl.LngLatBounds();
-          choroplethData.features.forEach(feature => {
-            const coords = feature.geometry.coordinates;
+          displayData.features.forEach(feature => {
+            const coords = (feature.geometry as any).coordinates;
             const addCoords = (c: any) => {
               if (typeof c[0] === 'number') {
                 bounds.extend(c as [number, number]);
@@ -200,8 +387,8 @@ export function IssuesDashboard() {
           map.fitBounds(bounds, { padding: 50, duration: 500 });
         }
 
-        // Click handler for regions
-        map.on('click', 'issues-choropleth-fill', (e) => {
+        // Click handler for regions - store in ref for proper cleanup
+        const handleClick = (e: maplibregl.MapLayerMouseEvent) => {
           if (!e.features || e.features.length === 0) return;
           const props = e.features[0].properties;
           if (!props) return;
@@ -245,7 +432,9 @@ export function IssuesDashboard() {
             setPanelData(featureData);
             setPanelOpen(true);
           }
-        });
+        };
+        clickHandlerRef.current = handleClick;
+        map.on('click', 'issues-choropleth-fill', handleClick);
 
         // Hover effect
         map.on('mouseenter', 'issues-choropleth-fill', () => {
@@ -254,13 +443,118 @@ export function IssuesDashboard() {
         map.on('mouseleave', 'issues-choropleth-fill', () => {
           map.getCanvas().style.cursor = '';
         });
+
+        setIsLoading(false);
+
+        // Close navigation popup after map finishes rendering
+        if (navigationPopupRef.current) {
+          const closePopup = () => {
+            if (navigationPopupRef.current) {
+              navigationPopupRef.current.remove();
+              navigationPopupRef.current = null;
+            }
+            map.off('idle', closePopup);
+          };
+          map.once('idle', closePopup);
+        }
       } catch (error) {
         console.error('[Issues Choropleth] Failed to load:', error);
+        setIsLoading(false);
       }
     };
 
     loadChoropleth();
-  }, [mapLoaded, mapType, currentLevel, selectedCategory, selectedSeverity, dateRange, interactionMode]);
+
+    // Cleanup function to abort pending operations and remove handlers
+    return () => {
+      aborted = true;
+      if (clickHandlerRef.current && map.getLayer('issues-choropleth-fill')) {
+        map.off('click', 'issues-choropleth-fill', clickHandlerRef.current);
+      }
+    };
+  }, [mapLoaded, mapType, currentLevel, selectedCategory, selectedSeverity, dateRange, interactionMode, hasFilters]);
+
+  // Basemap click handler - navigate to district when clicking outside choropleth
+  useEffect(() => {
+    if (!mapRef.current || !mapLoaded || mapType !== 'choropleth') return;
+    const map = mapRef.current;
+
+    // Remove existing basemap handler
+    if (basemapClickHandlerRef.current) {
+      map.off('click', basemapClickHandlerRef.current);
+      basemapClickHandlerRef.current = null;
+    }
+
+    const handleBasemapClick = (e: maplibregl.MapMouseEvent) => {
+      // Check if click was on the choropleth layer
+      const hasChoroplethLayer = map.getLayer('issues-choropleth-fill');
+      let features: maplibregl.MapGeoJSONFeature[] = [];
+
+      try {
+        if (hasChoroplethLayer) {
+          features = map.queryRenderedFeatures(e.point, {
+            layers: ['issues-choropleth-fill']
+          });
+        }
+      } catch (err) {
+        console.log('Issues: Error querying features:', err);
+      }
+
+      // If clicked on choropleth, the layer handler will process it
+      if (features && features.length > 0) {
+        return;
+      }
+
+      // Click was on basemap - check cached national data for district lookup
+      const { lng, lat } = e.lngLat;
+
+      // Look for cached national-level data (level 2)
+      const nationalCacheKey = getLevelCacheKey(2);
+      const nationalData = dataCache.current.get(nationalCacheKey);
+
+      if (!nationalData) {
+        console.log('Issues: No cached national data for basemap navigation');
+        return;
+      }
+
+      // Find which district contains the clicked point
+      const clickedDistrict = nationalData.geojson.features.find(feature => {
+        if (!feature.geometry) return false;
+        return pointInPolygon([lng, lat], feature.geometry);
+      });
+
+      if (clickedDistrict && clickedDistrict.properties) {
+        const { unitId, unitName } = clickedDistrict.properties as { unitId: number; unitName: string };
+        console.log('Issues: Navigating to district:', { unitId, unitName });
+
+        // Close any existing navigation popup
+        if (navigationPopupRef.current) {
+          navigationPopupRef.current.remove();
+        }
+
+        // Show a brief popup indicating navigation
+        navigationPopupRef.current = new maplibregl.Popup({ closeOnClick: true, closeButton: false })
+          .setLngLat(e.lngLat)
+          .setHTML(`<div style="padding: 8px; font-family: system-ui; color: #333;"><strong>Navigating to ${unitName}</strong></div>`)
+          .addTo(map);
+
+        // Navigate to the district
+        navigateToDistrict(unitId, unitName);
+      }
+    };
+
+    basemapClickHandlerRef.current = handleBasemapClick;
+    map.on('click', handleBasemapClick);
+
+    return () => {
+      if (basemapClickHandlerRef.current) {
+        map.off('click', basemapClickHandlerRef.current);
+      }
+      if (navigationPopupRef.current) {
+        navigationPopupRef.current.remove();
+      }
+    };
+  }, [mapLoaded, mapType, navigateToDistrict]);
 
   // Load point markers on map
   useEffect(() => {
@@ -410,9 +704,11 @@ export function IssuesDashboard() {
 
   const handleBreadcrumbNavigate = (index: number) => {
     setDrillDownStack(prev => prev.slice(0, index + 1));
+    // Zoom out to show entire Uganda when navigating to home
+    if (index === 0 && mapRef.current) {
+      mapRef.current.fitBounds(UGANDA_BOUNDS, { padding: 50, duration: 1000 });
+    }
   };
-
-  const hasFilters = selectedCategory || selectedSeverity || dateRange.start || dateRange.end;
 
   return (
     <div className="h-screen flex flex-col bg-gray-900">
@@ -549,15 +845,28 @@ export function IssuesDashboard() {
       <div className="flex-1 relative">
         {viewMode === 'map' ? (
           <>
-            <Map onLoad={handleMapLoad} className="absolute inset-0" />
+            <MapComponent onLoad={handleMapLoad} className="absolute inset-0" />
 
-            {/* Breadcrumb (top-left, below toolbar) */}
-            {mapType === 'choropleth' && (
-              <IssueBreadcrumb
-                stack={drillDownStack}
-                onNavigate={handleBreadcrumbNavigate}
-                currentLevel={currentLevel.level}
-              />
+            {/* Map Settings Widget */}
+            <MapSettingsWidget position="bottom-left" />
+
+            {/* Breadcrumb (floating, top-left) */}
+            <IssueBreadcrumb
+              stack={drillDownStack}
+              onNavigate={handleBreadcrumbNavigate}
+            />
+
+            {/* Loading indicator */}
+            {isLoading && (
+              <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+                <div className="flex items-center gap-4 bg-gray-900 px-8 py-5 rounded-xl shadow-2xl">
+                  <svg className="animate-spin h-10 w-10 text-blue-400" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  <span className="text-white text-lg font-medium">Loading issues data...</span>
+                </div>
+              </div>
             )}
 
             {/* Issue Detail Panel (for points mode) */}

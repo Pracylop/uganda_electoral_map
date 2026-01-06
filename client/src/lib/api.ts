@@ -517,12 +517,20 @@ export const api = {
 
   getIssueStats: (params?: {
     districtId?: number;
+    level?: number;
+    adminUnitId?: number;
     categoryIds?: number[];
     startDate?: string;
     endDate?: string;
   }) => {
     const searchParams = new URLSearchParams();
-    if (params?.districtId) searchParams.append('districtId', params.districtId.toString());
+    // Prefer level + adminUnitId over districtId
+    if (params?.level && params?.adminUnitId) {
+      searchParams.append('level', params.level.toString());
+      searchParams.append('adminUnitId', params.adminUnitId.toString());
+    } else if (params?.districtId) {
+      searchParams.append('districtId', params.districtId.toString());
+    }
     if (params?.categoryIds && params.categoryIds.length > 0) {
       searchParams.append('categoryIds', params.categoryIds.join(','));
     }
@@ -845,4 +853,13 @@ export const api = {
     const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
     return `/api/audit/export${query}`;
   },
+
+  // Region search for autocomplete
+  searchRegions: (query: string) =>
+    apiRequest<Array<{
+      id: number;
+      name: string;
+      level: number;
+      parentName: string | null;
+    }>>(`/api/reference/regions/search?q=${encodeURIComponent(query)}`),
 };

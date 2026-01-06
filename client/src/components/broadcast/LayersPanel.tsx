@@ -1,8 +1,18 @@
-import { X } from 'lucide-react';
+import { X, Globe, HardDrive, Zap, Wifi, WifiOff } from 'lucide-react';
 import { useBroadcastStore } from '../../stores/broadcastStore';
 
 export function LayersPanel() {
-  const { layersPanelOpen, toggleLayersPanel, sidebarExpanded, sidebarPosition, basemapOpacity, setBasemapOpacity } = useBroadcastStore();
+  const {
+    layersPanelOpen,
+    toggleLayersPanel,
+    sidebarExpanded,
+    sidebarPosition,
+    basemapOpacity,
+    setBasemapOpacity,
+    basemapSource,
+    setBasemapSource,
+    isOnline
+  } = useBroadcastStore();
 
   if (!layersPanelOpen) return null;
 
@@ -40,6 +50,99 @@ export function LayersPanel() {
           >
             <X size={24} />
           </button>
+        </div>
+
+        {/* Basemap Source */}
+        <div className="p-4 border-b border-gray-800">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-white font-medium">Basemap Source</h3>
+            <div className="flex items-center gap-1.5 text-xs">
+              {isOnline ? (
+                <>
+                  <Wifi size={14} className="text-green-500" />
+                  <span className="text-green-500">Online</span>
+                </>
+              ) : (
+                <>
+                  <WifiOff size={14} className="text-red-500" />
+                  <span className="text-red-500">Offline</span>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="space-y-2">
+            {/* Auto option */}
+            <button
+              onClick={() => setBasemapSource('auto')}
+              className={`
+                w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left
+                ${basemapSource === 'auto'
+                  ? 'bg-yellow-500/20 border border-yellow-500/50'
+                  : 'bg-gray-800 border border-gray-700 hover:border-gray-600'
+                }
+              `}
+            >
+              <div className={`p-2 rounded-lg ${basemapSource === 'auto' ? 'bg-yellow-500/30' : 'bg-gray-700'}`}>
+                <Zap size={18} className={basemapSource === 'auto' ? 'text-yellow-500' : 'text-gray-400'} />
+              </div>
+              <div className="flex-1">
+                <div className={`font-medium ${basemapSource === 'auto' ? 'text-yellow-500' : 'text-white'}`}>
+                  Auto (Recommended)
+                </div>
+                <div className="text-xs text-gray-400">
+                  Online when connected, offline when not
+                </div>
+              </div>
+            </button>
+
+            {/* Online option */}
+            <button
+              onClick={() => setBasemapSource('online')}
+              className={`
+                w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left
+                ${basemapSource === 'online'
+                  ? 'bg-yellow-500/20 border border-yellow-500/50'
+                  : 'bg-gray-800 border border-gray-700 hover:border-gray-600'
+                }
+              `}
+            >
+              <div className={`p-2 rounded-lg ${basemapSource === 'online' ? 'bg-yellow-500/30' : 'bg-gray-700'}`}>
+                <Globe size={18} className={basemapSource === 'online' ? 'text-yellow-500' : 'text-gray-400'} />
+              </div>
+              <div className="flex-1">
+                <div className={`font-medium ${basemapSource === 'online' ? 'text-yellow-500' : 'text-white'}`}>
+                  Online (OSM)
+                </div>
+                <div className="text-xs text-gray-400">
+                  Best labels, requires internet
+                </div>
+              </div>
+            </button>
+
+            {/* Offline option */}
+            <button
+              onClick={() => setBasemapSource('offline')}
+              className={`
+                w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left
+                ${basemapSource === 'offline'
+                  ? 'bg-yellow-500/20 border border-yellow-500/50'
+                  : 'bg-gray-800 border border-gray-700 hover:border-gray-600'
+                }
+              `}
+            >
+              <div className={`p-2 rounded-lg ${basemapSource === 'offline' ? 'bg-yellow-500/30' : 'bg-gray-700'}`}>
+                <HardDrive size={18} className={basemapSource === 'offline' ? 'text-yellow-500' : 'text-gray-400'} />
+              </div>
+              <div className="flex-1">
+                <div className={`font-medium ${basemapSource === 'offline' ? 'text-yellow-500' : 'text-white'}`}>
+                  Offline (PMTiles)
+                </div>
+                <div className="text-xs text-gray-400">
+                  Works without internet, fewer labels
+                </div>
+              </div>
+            </button>
+          </div>
         </div>
 
         {/* Basemap Opacity */}

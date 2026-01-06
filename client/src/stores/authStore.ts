@@ -6,7 +6,7 @@ export interface User {
   username: string;
   fullName: string;
   role: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 interface AuthState {

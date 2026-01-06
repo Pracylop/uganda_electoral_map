@@ -295,14 +295,35 @@ export const getCategories = async (_req: Request, res: Response): Promise<void>
 /**
  * Get issue statistics
  * GET /api/issues/stats
- * Query params: districtId, categoryIds, startDate, endDate
+ * Query params: districtId, level, adminUnitId, categoryIds, startDate, endDate
+ * - districtId: Legacy parameter for district-level filtering
+ * - level: Admin level (2=district, 3=constituency, 4=subcounty, 5=parish)
+ * - adminUnitId: ID of the admin unit to filter by (used with level)
  */
 export const getIssueStats = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { districtId, categoryIds, startDate, endDate } = req.query;
+    const { districtId, level, adminUnitId, categoryIds, startDate, endDate } = req.query;
 
     const where: any = {};
-    if (districtId) {
+
+    // Support multi-level filtering with level + adminUnitId
+    if (level && adminUnitId) {
+      const adminLevel = parseInt(level as string);
+      const unitId = parseInt(adminUnitId as string);
+
+      const levelFieldMap: Record<number, string> = {
+        2: 'districtId',
+        3: 'constituencyId',
+        4: 'subcountyId',
+        5: 'parishId'
+      };
+
+      const fieldName = levelFieldMap[adminLevel];
+      if (fieldName) {
+        where[fieldName] = unitId;
+      }
+    } else if (districtId) {
+      // Legacy: filter by districtId only
       where.districtId = parseInt(districtId as string);
     }
 

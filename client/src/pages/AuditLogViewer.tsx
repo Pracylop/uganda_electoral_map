@@ -113,8 +113,6 @@ export function AuditLogViewer() {
 
   const handleExport = () => {
     const exportUrl = api.exportAuditLogs(filters);
-    const token = localStorage.getItem('auth_token');
-    // Open in new window with auth
     window.open(
       `http://localhost:3000${exportUrl}`,
       '_blank'

@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useOnlineStatusListener } from './hooks/useOnlineStatus';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { UserManagement } from './pages/UserManagement';
@@ -19,6 +20,9 @@ import { Layout } from './components/Layout';
 import './App.css';
 
 function App() {
+  // Track online/offline status globally for basemap auto-switching
+  useOnlineStatusListener();
+
   return (
     <BrowserRouter>
       <Routes>

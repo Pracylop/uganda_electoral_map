@@ -53,6 +53,7 @@ export function IssuesPanel() {
     clearIssuesDateRange,
     selectedIssueDistrictId,
     selectedIssueDistrictName,
+    selectedIssueLevel,
     clearIssueDistrict,
   } = useBroadcastStore();
 
@@ -95,7 +96,9 @@ export function IssuesPanel() {
       setIsLoading(true);
       try {
         const statsData = await api.getIssueStats({
-          districtId: selectedIssueDistrictId || undefined,
+          // Use level + adminUnitId for multi-level support
+          level: selectedIssueLevel || undefined,
+          adminUnitId: selectedIssueDistrictId || undefined,
           categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
           startDate: issuesDateRange.startDate || undefined,
           endDate: issuesDateRange.endDate || undefined,
@@ -108,7 +111,7 @@ export function IssuesPanel() {
     };
 
     loadStats();
-  }, [issuesPanelOpen, selectedCategoryIds, issuesDateRange, selectedIssueDistrictId]);
+  }, [issuesPanelOpen, selectedCategoryIds, issuesDateRange, selectedIssueDistrictId, selectedIssueLevel]);
 
   if (!issuesPanelOpen) return null;
 

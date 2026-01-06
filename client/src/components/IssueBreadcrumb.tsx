@@ -1,4 +1,4 @@
-import { ChevronRight, Home } from 'lucide-react';
+import { Home } from 'lucide-react';
 
 interface DrillDownItem {
   level: number;
@@ -9,7 +9,6 @@ interface DrillDownItem {
 interface IssueBreadcrumbProps {
   stack: DrillDownItem[];
   onNavigate: (index: number) => void;
-  currentLevel: number;
 }
 
 const LEVEL_NAMES: Record<number, string> = {
@@ -19,36 +18,29 @@ const LEVEL_NAMES: Record<number, string> = {
   5: 'Parishes',
 };
 
-export function IssueBreadcrumb({ stack, onNavigate, currentLevel }: IssueBreadcrumbProps) {
-  // Don't show if only at root level
-  if (stack.length <= 1) return null;
+export function IssueBreadcrumb({ stack, onNavigate }: IssueBreadcrumbProps) {
+  const currentLevel = stack[stack.length - 1]?.level || 2;
+  const nextLevel = currentLevel < 5 ? currentLevel + 1 : null;
 
   return (
     <nav className="absolute top-4 left-4 z-30">
-      <div className="flex items-center gap-1 bg-gray-900/95 backdrop-blur-sm px-4 py-3 rounded-xl border border-gray-700 shadow-2xl">
-        {/* Home button */}
+      <div className="flex items-center bg-gray-800 px-4 py-2.5 rounded-lg shadow-lg">
+        {/* Home (root) */}
         <button
           onClick={() => onNavigate(0)}
-          className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-800 hover:bg-yellow-500 hover:text-gray-900 text-gray-300 transition-colors"
+          className="text-gray-300 hover:text-white transition-colors"
           title="Back to National View"
         >
-          <Home size={20} />
+          <Home size={18} />
         </button>
 
         {/* Breadcrumb items */}
-        {stack.map((item, index) => (
+        {stack.slice(1).map((item, index) => (
           <span key={index} className="flex items-center">
-            <ChevronRight size={18} className="text-gray-500 mx-1" />
+            <span className="text-gray-500 mx-2">›</span>
             <button
-              onClick={() => onNavigate(index)}
-              className={`
-                px-3 py-2 rounded-lg text-sm font-medium transition-colors
-                ${index === stack.length - 1
-                  ? 'bg-yellow-500 text-gray-900 cursor-default'
-                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
-                }
-              `}
-              disabled={index === stack.length - 1}
+              onClick={() => onNavigate(index + 1)}
+              className="text-white font-semibold hover:text-gray-200 transition-colors"
             >
               {item.regionName}
             </button>
@@ -56,11 +48,11 @@ export function IssueBreadcrumb({ stack, onNavigate, currentLevel }: IssueBreadc
         ))}
 
         {/* Current level indicator */}
-        {currentLevel <= 5 && (
+        {nextLevel && stack.length > 1 && (
           <span className="flex items-center">
-            <ChevronRight size={18} className="text-gray-500 mx-1" />
-            <span className="px-3 py-2 text-sm text-blue-400 font-medium">
-              {LEVEL_NAMES[currentLevel]}
+            <span className="text-gray-500 mx-2">›</span>
+            <span className="text-purple-400 font-medium">
+              {LEVEL_NAMES[nextLevel]}
             </span>
           </span>
         )}

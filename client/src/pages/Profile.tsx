@@ -166,7 +166,7 @@ export function Profile() {
             </div>
             <div>
               <span className="text-gray-400">Account Created</span>
-              <p className="font-medium">{formatDate(user.createdAt)}</p>
+              <p className="font-medium">{user.createdAt ? formatDate(user.createdAt) : 'N/A'}</p>
             </div>
           </div>
         </div>

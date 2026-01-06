@@ -16,9 +16,10 @@ interface StatsData {
   byStatus: Array<{ status: string; count: number }>;
   topDistricts: Array<{ district: string; districtId: number | null; count: number }>;
   casualties?: {
-    totalInjuries: number;
-    totalDeaths: number;
-    totalArrests: number;
+    injuries: number;
+    deaths: number;
+    arrests: number;
+    total: number;
   };
 }
 
@@ -229,15 +230,15 @@ export function IssuesStats() {
                 <div className="text-gray-400 text-sm">Total Issues</div>
               </div>
               <div className="bg-gray-800 rounded-lg p-4 border border-red-900/50">
-                <div className="text-3xl font-bold text-red-400">{stats.casualties?.totalDeaths || 0}</div>
+                <div className="text-3xl font-bold text-red-400">{stats.casualties?.deaths || 0}</div>
                 <div className="text-gray-400 text-sm">Deaths</div>
               </div>
               <div className="bg-gray-800 rounded-lg p-4 border border-orange-900/50">
-                <div className="text-3xl font-bold text-orange-400">{stats.casualties?.totalInjuries || 0}</div>
+                <div className="text-3xl font-bold text-orange-400">{stats.casualties?.injuries || 0}</div>
                 <div className="text-gray-400 text-sm">Injuries</div>
               </div>
               <div className="bg-gray-800 rounded-lg p-4 border border-blue-900/50">
-                <div className="text-3xl font-bold text-blue-400">{stats.casualties?.totalArrests || 0}</div>
+                <div className="text-3xl font-bold text-blue-400">{stats.casualties?.arrests || 0}</div>
                 <div className="text-gray-400 text-sm">Arrests</div>
               </div>
             </div>
