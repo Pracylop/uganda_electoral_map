@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Map, BarChart3 } from 'lucide-react';
+import { Map, BarChart3, TrendingUp } from 'lucide-react';
 import { BroadcastMap } from './BroadcastMap';
 import { ComparisonCharts } from './ComparisonCharts';
+import { SwingMap } from './SwingMap';
 import { useBroadcastStore } from '../../stores/broadcastStore';
 import { useElections } from '../../hooks/useElectionData';
 
@@ -12,7 +13,7 @@ export function BroadcastComparisonView() {
   // Local state for showing selectors
   const [showLeftSelector, setShowLeftSelector] = useState(false);
   const [showRightSelector, setShowRightSelector] = useState(false);
-  const [comparisonMode, setComparisonMode] = useState<'maps' | 'charts'>('maps');
+  const [comparisonMode, setComparisonMode] = useState<'maps' | 'charts' | 'swing'>('maps');
 
   // Get election details
   const leftElection = elections?.find(e => e.id === selectedElectionId);
@@ -67,6 +68,17 @@ export function BroadcastComparisonView() {
           <BarChart3 size={18} />
           <span className="font-medium">Charts</span>
         </button>
+        <button
+          onClick={() => setComparisonMode('swing')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+            comparisonMode === 'swing'
+              ? 'bg-orange-500 text-gray-900'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          }`}
+        >
+          <TrendingUp size={18} />
+          <span className="font-medium">Swing</span>
+        </button>
       </div>
 
       {/* Charts View */}
@@ -77,6 +89,18 @@ export function BroadcastComparisonView() {
             rightElectionId={comparisonElectionId}
             leftElectionName={leftElection?.name}
             rightElectionName={rightElection?.name}
+          />
+        </div>
+      )}
+
+      {/* Swing View */}
+      {comparisonMode === 'swing' && (
+        <div className="flex-1">
+          <SwingMap
+            election1Id={selectedElectionId}
+            election2Id={comparisonElectionId}
+            election1Name={leftElection?.name}
+            election2Name={rightElection?.name}
           />
         </div>
       )}
