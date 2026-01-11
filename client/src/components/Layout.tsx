@@ -19,7 +19,10 @@ export function Layout({ children }: LayoutProps) {
     navigate('/login');
   };
 
-  const isActive = (path: string) => location.pathname === path;
+  const isActive = (path: string) => {
+    if (path === '/') return location.pathname === '/';
+    return location.pathname.startsWith(path);
+  };
 
   const navLinkClass = (path: string) => `
     px-3 py-1.5 rounded text-sm font-medium transition-colors
@@ -30,7 +33,7 @@ export function Layout({ children }: LayoutProps) {
   `;
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900">
+    <div className="flex flex-col h-screen bg-gray-900 overflow-hidden">
       {/* Compact Header */}
       <header className="bg-gray-800 text-white px-4 py-2 shadow-lg flex-shrink-0">
         <div className="flex items-center justify-between gap-4">
@@ -50,17 +53,17 @@ export function Layout({ children }: LayoutProps) {
             <Link to="/" className={navLinkClass('/')}>
               Home
             </Link>
-            <Link to="/elections" className={navLinkClass('/elections')}>
-              Elections
+            <Link to="/elections/2026" className={navLinkClass('/elections/2026')}>
+              2026
             </Link>
-            <Link to="/map" className={navLinkClass('/map')}>
-              Map
+            <Link to="/elections/past" className={navLinkClass('/elections/past')}>
+              Past Elections
             </Link>
             <Link to="/demographics" className={navLinkClass('/demographics')}>
               Demographics
             </Link>
-            <Link to="/issues" className={navLinkClass('/issues')}>
-              Issues
+            <Link to="/incidents" className={navLinkClass('/incidents')}>
+              Incidents
             </Link>
 
             {/* More dropdown for admin/editor links */}
@@ -112,7 +115,7 @@ export function Layout({ children }: LayoutProps) {
           <div className="flex items-center gap-3 flex-shrink-0">
             {/* Broadcast Button */}
             <button
-              onClick={() => window.open('/broadcast?fullscreen=true', '_blank')}
+              onClick={() => navigate('/broadcast?fullscreen=true')}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500 text-gray-900 text-sm font-semibold rounded hover:bg-yellow-400 transition-colors"
               title="Launch Broadcast Mode"
             >
@@ -150,7 +153,7 @@ export function Layout({ children }: LayoutProps) {
       </header>
 
       {/* Main Content - Takes remaining space */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col min-h-0 overflow-auto">
         {children}
       </main>
 

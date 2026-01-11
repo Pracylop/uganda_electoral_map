@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import { useBroadcastStore } from '../../stores/broadcastStore';
+import { useEffectiveBasemap } from '../../hooks/useOnlineStatus';
+import { getMapStyle } from '../../lib/mapStyles';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -70,18 +72,11 @@ export function SwingMap({
     noData: number;
   }>({ changed: 0, gained: 0, lost: 0, stable: 0, noData: 0 });
 
-  const { currentLevel, selectedRegionId, basemapSource } = useBroadcastStore();
+  const { currentLevel, selectedRegionId } = useBroadcastStore();
 
-  // Determine tile URL based on basemap source
-  const getTileUrl = useCallback(() => {
-    if (basemapSource === 'offline') {
-      return 'pmtiles:///tiles/basemap.pmtiles';
-    } else if (basemapSource === 'online') {
-      return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    }
-    // Auto mode - try offline first, fall back to online
-    return 'pmtiles:///tiles/basemap.pmtiles';
-  }, [basemapSource]);
+  // Get effective basemap mode (online/offline)
+  const effectiveBasemap = useEffectiveBasemap();
+  const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
   // Load swing data
   const loadSwingData = useCallback(async () => {
@@ -203,31 +198,16 @@ export function SwingMap({
     }
   }, [election1Id, election2Id, currentLevel, selectedRegionId]);
 
-  // Initialize map
+  // Initialize map with dynamic basemap (online/offline)
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
 
+    // Get appropriate style based on basemap mode
+    const mapStyle = getMapStyle(effectiveBasemap, isOnline);
+
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: {
-        version: 8,
-        sources: {
-          'osm-tiles': {
-            type: 'raster',
-            tiles: [getTileUrl()],
-            tileSize: 256,
-          },
-        },
-        layers: [
-          {
-            id: 'osm-tiles',
-            type: 'raster',
-            source: 'osm-tiles',
-            minzoom: 0,
-            maxzoom: 19,
-          },
-        ],
-      },
+      style: mapStyle,
       center: [32.5, 1.5], // Uganda center
       zoom: 6,
       attributionControl: false,
@@ -308,7 +288,7 @@ export function SwingMap({
       map.remove();
       mapRef.current = null;
     };
-  }, [getTileUrl]);
+  }, [effectiveBasemap, isOnline]);
 
   // Reload data when elections or level change
   useEffect(() => {

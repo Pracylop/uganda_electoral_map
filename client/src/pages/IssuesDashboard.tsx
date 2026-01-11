@@ -7,6 +7,8 @@ import { useEffectiveBasemap } from '../hooks/useOnlineStatus';
 import { IssueSlideOutPanel } from '../components/IssueSlideOutPanel';
 import { IssueBreadcrumb } from '../components/IssueBreadcrumb';
 import { api } from '../lib/api';
+// cacheService removed - using static boundaries
+import { boundaryService } from '../lib/boundaryService';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 interface IssueCategory {
@@ -70,38 +72,6 @@ const UGANDA_BOUNDS: [[number, number], [number, number]] = [
   [35.0, 4.3]    // Northeast corner
 ];
 
-// Cache key generator - by LEVEL only (not parentId)
-function getLevelCacheKey(level: number): string {
-  return `issues-level-${level}`;
-}
-
-// Type for cached data
-interface CachedIssueData {
-  geojson: GeoJSON.FeatureCollection;
-  metadata: { totalIssues: number; unitsWithIssues: number; maxIssuesPerUnit: number };
-}
-
-// Helper to filter features by parentId
-function filterFeaturesByParent(geojson: GeoJSON.FeatureCollection, parentId: number): GeoJSON.FeatureCollection {
-  return {
-    type: 'FeatureCollection',
-    features: geojson.features.filter(f => f.properties?.parentId === parentId),
-  };
-}
-
-// Helper to recalculate metadata from filtered features
-function recalculateMetadata(features: GeoJSON.Feature[]): { totalIssues: number; unitsWithIssues: number; maxIssuesPerUnit: number } {
-  let totalIssues = 0;
-  let unitsWithIssues = 0;
-  let maxIssuesPerUnit = 0;
-  features.forEach(f => {
-    const count = f.properties?.issueCount || 0;
-    totalIssues += count;
-    if (count > 0) unitsWithIssues++;
-    if (count > maxIssuesPerUnit) maxIssuesPerUnit = count;
-  });
-  return { totalIssues, unitsWithIssues, maxIssuesPerUnit };
-}
 
 // Ray-casting algorithm for point-in-polygon test
 function pointInRing(x: number, y: number, ring: number[][]): boolean {
@@ -169,9 +139,6 @@ export function IssuesDashboard() {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const [choroplethMetadata, setChoroplethMetadata] = useState<{ totalIssues: number; unitsWithIssues: number; maxIssuesPerUnit: number } | null>(null);
-
-  // In-memory cache for choropleth data
-  const dataCache = useRef(new Map<string, CachedIssueData>());
 
   // Click handler ref for proper cleanup
   const clickHandlerRef = useRef<((e: maplibregl.MapLayerMouseEvent) => void) | null>(null);
@@ -288,52 +255,49 @@ export function IssuesDashboard() {
         let displayData: GeoJSON.FeatureCollection;
         let metadata: { totalIssues: number; unitsWithIssues: number; maxIssuesPerUnit: number };
 
-        // If filters are active, always fetch fresh data (no caching with filters)
+        setIsLoading(true);
+
+        // Step 1: Ensure boundaries are loaded (single static file)
+        await boundaryService.loadStaticBoundaries();
+
+        // Step 2: Fetch issues data (with optional filters)
+        const params: any = { level: currentLevel.level };
+        if (currentLevel.regionId) params.parentId = currentLevel.regionId;
+
+        // Note: For now, filters use the old API endpoint since they need server-side filtering
+        // The new data endpoint doesn't support category/severity/date filters yet
         if (hasFilters) {
-          setIsLoading(true);
-          const params: any = { level: currentLevel.level };
-          if (currentLevel.regionId) params.parentId = currentLevel.regionId;
           if (selectedCategory) params.categoryId = selectedCategory;
           if (selectedSeverity) params.severity = selectedSeverity;
           if (dateRange.start) params.startDate = dateRange.start;
           if (dateRange.end) params.endDate = dateRange.end;
 
+          // Use old choropleth endpoint for filtered data (still works)
           const choroplethData = await api.getIssuesChoropleth(params);
           displayData = choroplethData as GeoJSON.FeatureCollection;
           metadata = choroplethData.metadata;
         } else {
-          // No filters - use caching with client-side filtering
-          const cacheKey = getLevelCacheKey(currentLevel.level);
-          let levelData = dataCache.current.get(cacheKey);
+          // No filters - use boundary/data separation
+          const issuesData = await api.getIssuesData({
+            level: currentLevel.level,
+            parentId: currentLevel.regionId ?? undefined
+          });
 
-          // If level not cached, fetch ALL data for this level
-          if (!levelData) {
-            setIsLoading(true);
-            console.log(`Issues: Fetching level ${currentLevel.level} data...`);
-            const data = await api.getIssuesChoropleth({ level: currentLevel.level });
-            if (data?.features?.length > 0) {
-              levelData = { geojson: data as GeoJSON.FeatureCollection, metadata: data.metadata };
-              dataCache.current.set(cacheKey, levelData);
-              console.log(`Issues: Cached level ${currentLevel.level} - ${levelData.geojson.features.length} features`);
-            }
-          } else {
-            console.log(`Issues: Using cached level ${currentLevel.level} data`);
-          }
+          // Step 3: Build parent filter from drill-down state (for static boundaries)
+          // regionName is the name of the parent region (e.g., "KAMPALA" when viewing constituencies)
+          const parentFilter = currentLevel.regionId
+            ? { level: currentLevel.level - 1, name: currentLevel.regionName }
+            : null;
 
-          if (!levelData) {
-            console.error('No data for this level');
-            return;
-          }
+          // Step 4: Join boundaries with data (instant, client-side)
+          displayData = boundaryService.createGeoJSON(
+            currentLevel.level,
+            issuesData.data,
+            parentFilter
+          );
+          metadata = issuesData.metadata;
 
-          // Filter by parentId if needed (client-side, instant!)
-          if (currentLevel.regionId !== null) {
-            displayData = filterFeaturesByParent(levelData.geojson, currentLevel.regionId);
-            metadata = recalculateMetadata(displayData.features);
-            console.log(`Issues: Filtered to ${displayData.features.length} features for parent ${currentLevel.regionId}`);
-          } else {
-            displayData = levelData.geojson;
-            metadata = levelData.metadata;
-          }
+          console.log(`Issues: Joined ${displayData.features.length} features at level ${currentLevel.level}`);
         }
 
         // Check if aborted before continuing
@@ -512,20 +476,19 @@ export function IssuesDashboard() {
         return;
       }
 
-      // Click was on basemap - check cached national data for district lookup
+      // Click was on basemap - check district boundaries
       const { lng, lat } = e.lngLat;
 
-      // Look for cached national-level data (level 2)
-      const nationalCacheKey = getLevelCacheKey(2);
-      const nationalData = dataCache.current.get(nationalCacheKey);
-
-      if (!nationalData) {
-        console.log('Issues: No cached national data for basemap navigation');
+      // Use boundaryService to get district boundaries
+      if (!boundaryService.hasLevel(2)) {
+        console.log('Issues: District boundaries not loaded');
         return;
       }
 
+      const districtGeoJSON = boundaryService.getBoundariesGeoJSON(2);
+
       // Find which district contains the clicked point
-      const clickedDistrict = nationalData.geojson.features.find(feature => {
+      const clickedDistrict = districtGeoJSON.features.find(feature => {
         if (!feature.geometry) return false;
         return pointInPolygon([lng, lat], feature.geometry);
       });

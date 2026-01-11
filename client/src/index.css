@@ -144,6 +144,27 @@ button, select, a {
   padding: 8px !important;
 }
 
+/* Dot map popup - dark theme */
+.dotmap-popup .maplibregl-popup-content {
+  background-color: #1f2937 !important;
+  border: 1px solid #374151 !important;
+  padding: 0 !important;
+}
+
+.dotmap-popup .maplibregl-popup-close-button {
+  color: #9ca3af !important;
+  right: 4px !important;
+  top: 4px !important;
+}
+
+.dotmap-popup .maplibregl-popup-close-button:hover {
+  color: #fff !important;
+}
+
+.dotmap-popup .maplibregl-popup-tip {
+  border-top-color: #1f2937 !important;
+}
+
 /* Touch-friendly popup enhancements */
 @media (pointer: coarse) {
   .maplibregl-popup-content {

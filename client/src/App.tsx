@@ -9,13 +9,19 @@ import { Profile } from './pages/Profile';
 import { Elections } from './pages/Elections';
 import { ElectionResults } from './pages/ElectionResults';
 import { ElectionCandidates } from './pages/ElectionCandidates';
+import { CandidateProfile } from './pages/CandidateProfile';
 import { ResultsEntry } from './pages/ResultsEntry';
 import { ApprovalQueue } from './pages/ApprovalQueue';
 import { MapDashboard } from './pages/MapDashboard';
-import { DemographicsDashboard } from './pages/DemographicsDashboard';
-import { IssuesDashboard } from './pages/IssuesDashboard';
-import { IssuesStats } from './pages/IssuesStats';
+import { DemographicsHome } from './pages/DemographicsHome';
+import { DemographicsMap } from './pages/DemographicsMap';
+import { DemographicsStats } from './pages/DemographicsStats';
+import { IncidentsHome } from './pages/IncidentsHome';
+import { IncidentsMap } from './pages/IncidentsMap';
+import { IncidentsStats } from './pages/IncidentsStats';
 import { BroadcastApp } from './pages/BroadcastApp';
+import { PastElectionsDashboard } from './pages/PastElectionsDashboard';
+import { CurrentElectionDashboard } from './pages/CurrentElectionDashboard';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
 import { KeyboardShortcutsProvider } from './components/KeyboardShortcutsProvider';
@@ -73,7 +79,27 @@ function App() {
           }
         />
         <Route
-          path="/elections"
+          path="/elections/past"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <PastElectionsDashboard />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/elections/2026"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <CurrentElectionDashboard />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/elections/browse"
           element={
             <ProtectedRoute>
               <Layout>
@@ -81,6 +107,21 @@ function App() {
               </Layout>
             </ProtectedRoute>
           }
+        />
+        <Route
+          path="/elections/map"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <MapDashboard />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        {/* Legacy route - redirect to past elections */}
+        <Route
+          path="/elections"
+          element={<Navigate to="/elections/past" replace />}
         />
         <Route
           path="/elections/:id"
@@ -98,6 +139,16 @@ function App() {
             <ProtectedRoute requiredRole={['editor', 'admin']}>
               <Layout>
                 <ElectionCandidates />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/elections/:electionId/candidates/:candidateId"
+          element={
+            <ProtectedRoute requiredRole={['editor', 'admin']}>
+              <Layout>
+                <CandidateProfile />
               </Layout>
             </ProtectedRoute>
           }
@@ -122,45 +173,79 @@ function App() {
             </ProtectedRoute>
           }
         />
+        {/* Legacy route - redirect to elections map */}
         <Route
           path="/map"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <MapDashboard />
-              </Layout>
-            </ProtectedRoute>
-          }
+          element={<Navigate to="/elections/map" replace />}
         />
         <Route
           path="/demographics"
           element={
             <ProtectedRoute>
               <Layout>
-                <DemographicsDashboard />
+                <DemographicsHome />
               </Layout>
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/demographics/map"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <DemographicsMap />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/demographics/stats"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <DemographicsStats />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/incidents"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <IncidentsHome />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/incidents/map"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <IncidentsMap />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/incidents/stats"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <IncidentsStats />
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+        {/* Legacy route - redirect issues to incidents */}
         <Route
           path="/issues"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <IssuesDashboard />
-              </Layout>
-            </ProtectedRoute>
-          }
+          element={<Navigate to="/incidents" replace />}
         />
         <Route
-          path="/issues/stats"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <IssuesStats />
-              </Layout>
-            </ProtectedRoute>
-          }
+          path="/issues/*"
+          element={<Navigate to="/incidents" replace />}
         />
         <Route
           path="/broadcast"

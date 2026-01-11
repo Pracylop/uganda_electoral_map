@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../config/database';
+import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+import { point } from '@turf/helpers';
 
 // Get administrative boundaries as GeoJSON
 export const getAdministrativeBoundaries = async (req: Request, res: Response): Promise<void> => {
@@ -696,7 +698,9 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
       where: {
         electionId
       },
-      include: {
+      select: {
+        id: true,
+        photoUrl: true,
         person: { select: { fullName: true } },
         party: { select: { name: true, abbreviation: true, color: true } }
       }
@@ -726,6 +730,7 @@ export const getNationalTotals = async (req: Request, res: Response): Promise<vo
         party: candidate?.party?.abbreviation || 'IND',
         partyName: candidate?.party?.name || 'Independent',
         partyColor: candidate?.party?.color || '#808080',
+        photoUrl: candidate?.photoUrl || null,
         votes: ct._sum.votes || 0
       };
     }).sort((a, b) => b.votes - a.votes);
@@ -970,6 +975,7 @@ function updateBounds(geometry: any, update: (lng: number, lat: number) => void)
 }
 
 // Point-in-polygon lookup: Find admin unit containing given coordinates
+// Uses Turf.js for spatial queries (no PostGIS dependency)
 export const getAdminUnitAtPoint = async (req: Request, res: Response): Promise<void> => {
   try {
     const lng = parseFloat(req.query.lng as string);
@@ -991,35 +997,76 @@ export const getAdminUnitAtPoint = async (req: Request, res: Response): Promise<
       return;
     }
 
-    // Use raw SQL for point-in-polygon query since Prisma doesn't support ST_Contains
-    // We check if the point is within any admin unit's geometry
-    const levelFilter = level ? `AND level = ${level}` : '';
+    // Create Turf.js point for spatial query
+    const searchPoint = point([lng, lat]);
 
-    const query = `
-      SELECT
-        id,
-        name,
-        code,
-        level,
-        parent_id as "parentId"
-      FROM administrative_units
-      WHERE geometry IS NOT NULL
-        ${levelFilter}
-        AND ST_Contains(
-          ST_SetSRID(geometry::geometry, 4326),
-          ST_SetSRID(ST_MakePoint($1, $2), 4326)
-        )
-      ORDER BY level DESC
-      LIMIT 5
-    `;
+    // Build query filter
+    const whereClause: any = {
+      geometry: { not: null }
+    };
+    if (level !== null) {
+      whereClause.level = level;
+    }
 
-    console.log('Point lookup query:', query.replace(/\s+/g, ' ').trim());
-    console.log('Point lookup params:', [lng, lat]);
+    // Fetch admin units with geometry
+    // For efficiency, we query in order of specificity (highest level first)
+    // and can stop early once we find matches at a level
+    const units = await prisma.administrativeUnit.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        level: true,
+        parentId: true,
+        geometry: true,
+      },
+      orderBy: { level: 'desc' }, // Most specific (parish=5) first
+    });
 
-    const results = await prisma.$queryRawUnsafe<any[]>(query, lng, lat);
-    console.log('Point lookup results count:', results.length);
+    console.log(`Point lookup: Checking ${units.length} units`);
 
-    if (results.length === 0) {
+    // Find units containing the point using Turf.js
+    const matchingUnits: Array<{
+      id: number;
+      name: string;
+      code: string | null;
+      level: number;
+      parentId: number | null;
+    }> = [];
+
+    for (const unit of units) {
+      if (!unit.geometry) continue;
+
+      try {
+        const geometry = JSON.parse(unit.geometry);
+
+        // booleanPointInPolygon works with Polygon and MultiPolygon
+        if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
+          const polygon = { type: 'Feature', geometry, properties: {} } as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
+
+          if (booleanPointInPolygon(searchPoint, polygon)) {
+            matchingUnits.push({
+              id: unit.id,
+              name: unit.name,
+              code: unit.code,
+              level: unit.level,
+              parentId: unit.parentId,
+            });
+
+            // Limit to 5 matches (same as before)
+            if (matchingUnits.length >= 5) break;
+          }
+        }
+      } catch (parseError) {
+        // Skip units with invalid geometry
+        console.warn(`Failed to parse geometry for unit ${unit.id}:`, parseError);
+      }
+    }
+
+    console.log('Point lookup results count:', matchingUnits.length);
+
+    if (matchingUnits.length === 0) {
       res.status(404).json({
         error: 'No admin unit found at this location',
         coordinates: { lng, lat }
@@ -1031,36 +1078,13 @@ export const getAdminUnitAtPoint = async (req: Request, res: Response): Promise<
     // Usually: parish -> subcounty -> constituency -> district -> subregion
     res.json({
       coordinates: { lng, lat },
-      units: results.map(r => ({
-        id: r.id,
-        name: r.name,
-        code: r.code,
-        level: r.level,
-        parentId: r.parentId
-      })),
+      units: matchingUnits,
       // Convenience: most specific unit
-      primary: {
-        id: results[0].id,
-        name: results[0].name,
-        code: results[0].code,
-        level: results[0].level,
-        parentId: results[0].parentId
-      }
+      primary: matchingUnits[0]
     });
 
   } catch (error) {
     console.error('Point lookup error:', error);
-
-    // Check if error is due to missing PostGIS extension
-    const errorMessage = (error as Error).message || '';
-    if (errorMessage.includes('ST_Contains') || errorMessage.includes('function st_')) {
-      res.status(500).json({
-        error: 'Spatial query not supported. PostGIS extension may not be installed.',
-        fallback: 'Use boundary-based navigation instead.'
-      });
-      return;
-    }
-
     res.status(500).json({ error: 'Internal server error' });
   }
 }

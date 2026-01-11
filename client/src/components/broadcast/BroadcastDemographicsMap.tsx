@@ -2,6 +2,8 @@ import { useCallback, useRef, useEffect, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useBroadcastStore } from '../../stores/broadcastStore';
+import { useEffectiveBasemap } from '../../hooks/useOnlineStatus';
+import { getMapStyle, UGANDA_CENTER as MAP_CENTER } from '../../lib/mapStyles';
 import { api } from '../../lib/api';
 
 interface BroadcastDemographicsMapProps {
@@ -14,7 +16,8 @@ interface BroadcastDemographicsMapProps {
 
 type DemographicMetric = 'population' | 'votingAge' | 'votingAgePercent' | 'malePercent';
 
-const UGANDA_CENTER: [number, number] = [32.5825, 1.3733];
+// Use shared constants from mapStyles.ts
+const UGANDA_CENTER = MAP_CENTER;
 const INITIAL_ZOOM = 6.0;
 
 // Admin level names
@@ -213,31 +216,20 @@ export function BroadcastDemographicsMap({
     basemapOpacity,
   } = useBroadcastStore();
 
-  // Initialize map
+  // Get effective basemap mode (online/offline)
+  const effectiveBasemap = useEffectiveBasemap();
+  const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+  // Initialize map with dynamic basemap (online/offline)
   useEffect(() => {
     if (map.current || !mapContainer.current) return;
 
+    // Get appropriate style based on basemap mode
+    const mapStyle = getMapStyle(effectiveBasemap, isOnline);
+
     map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: {
-        version: 8,
-        sources: {
-          'osm': {
-            type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-            tileSize: 256,
-            attribution: '&copy; OpenStreetMap Contributors',
-            maxzoom: 19,
-          },
-        },
-        layers: [
-          {
-            id: 'osm',
-            type: 'raster',
-            source: 'osm',
-          },
-        ],
-      },
+      style: mapStyle,
       center: UGANDA_CENTER,
       zoom: INITIAL_ZOOM,
       dragRotate: true,

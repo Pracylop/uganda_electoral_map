@@ -47,3 +47,4 @@ prisma/migrations/**
 
 # Offline map tiles (large files)
 client/public/tiles/*.pmtiles
+src-tauri/

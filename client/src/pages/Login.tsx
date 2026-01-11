@@ -1,12 +1,18 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../stores/authStore';
+import { useAuthStore, isTauriEnvironment } from '../stores/authStore';
 
 export function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const { login, isLoading, error, clearError } = useAuthStore();
+  const { login, loginAsDesktop, isLoading, error, clearError } = useAuthStore();
   const navigate = useNavigate();
+  const isDesktop = isTauriEnvironment();
+
+  const handleDesktopLogin = () => {
+    loginAsDesktop();
+    navigate('/');
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -71,7 +77,7 @@ export function Login() {
             </div>
           </div>
 
-          <div>
+          <div className="space-y-3">
             <button
               type="submit"
               disabled={isLoading}
@@ -79,6 +85,31 @@ export function Login() {
             >
               {isLoading ? 'Signing in...' : 'Sign in'}
             </button>
+
+            {/* Desktop mode button - visible in Tauri app */}
+            {isDesktop && (
+              <>
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-600"></div>
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-2 bg-gray-800 text-gray-400">or</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDesktopLogin}
+                  className="group relative w-full flex justify-center py-2 px-4 border border-yellow-500 text-sm font-medium rounded-md text-yellow-400 hover:bg-yellow-500 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition-colors"
+                >
+                  Continue in Desktop Mode
+                </button>
+                <p className="text-xs text-gray-500 text-center">
+                  Use offline with bundled data (no server required)
+                </p>
+              </>
+            )}
           </div>
         </form>
       </div>

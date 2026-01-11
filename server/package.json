@@ -16,7 +16,10 @@
     "import:stations": "tsx src/scripts/importPollingStations.ts",
     "import:issues": "tsx src/scripts/importElectoralIssues.ts",
     "import:demographics": "tsx src/scripts/importDemographics.ts",
-    "aggregate:demographics": "tsx src/scripts/aggregateDemographics.ts"
+    "aggregate:demographics": "tsx src/scripts/aggregateDemographics.ts",
+    "import:published-stats": "tsx src/scripts/importPublishedStats.ts",
+    "db:export": "tsx scripts/export-to-sqlite.ts",
+    "db:export:dist": "tsx scripts/export-to-sqlite.ts ../client/dist/uganda_electoral.sqlite"
   },
   "keywords": [
     "election",
@@ -28,6 +31,7 @@
   "license": "MIT",
   "dependencies": {
     "@prisma/client": "^6.4.1",
+    "@turf/boolean-point-in-polygon": "^7.3.1",
     "@turf/helpers": "^7.3.1",
     "@turf/simplify": "^7.3.1",
     "bcrypt": "^5.1.1",
@@ -39,11 +43,13 @@
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
+    "@types/better-sqlite3": "^7.6.12",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.13.6",
     "@types/ws": "^8.18.1",
+    "better-sqlite3": "^11.8.1",
     "prisma": "^6.4.1",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"

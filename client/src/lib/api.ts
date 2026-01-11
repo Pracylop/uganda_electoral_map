@@ -4,6 +4,51 @@ export interface ApiError {
   error: string;
 }
 
+// ============================================
+// Election Results Cache
+// Caches results data to avoid repeated API calls during drill-up/navigation
+// ============================================
+type ElectionResultsData = {
+  electionId: number;
+  electionName: string;
+  electionYear: number;
+  level: number;
+  parentId: number | null;
+  count: number;
+  data: Array<{
+    unitId: number;
+    unitName: string;
+    parentId: number | null;
+    totalVotes: number;
+    winner?: string;
+    winnerVotes?: number;
+    winnerColor?: string;
+    margin?: number;
+    noData?: boolean;
+    candidates: Array<{
+      candidateId: number;
+      name: string;
+      partyId: number | null;
+      partyName: string;
+      partyColor: string;
+      votes: number;
+    }>;
+  }>;
+};
+
+const electionResultsCache = new Map<string, ElectionResultsData>();
+
+function getResultsCacheKey(electionId: number, level: number, parentId?: number): string {
+  return `${electionId}-${level}-${parentId ?? 'null'}`;
+}
+
+// Export for debugging/stats
+export const electionResultsCacheStats = {
+  getSize: () => electionResultsCache.size,
+  getKeys: () => Array.from(electionResultsCache.keys()),
+  clear: () => electionResultsCache.clear(),
+};
+
 export async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -862,4 +907,296 @@ export const api = {
       level: number;
       parentName: string | null;
     }>>(`/api/reference/regions/search?q=${encodeURIComponent(query)}`),
+
+  // ============================================
+  // Boundary/Data Separation Architecture APIs
+  // See: Documentation/Boundary_Data_Separation.md
+  // ============================================
+
+  // Get admin boundaries (geometry only, no data)
+  getBoundaries: (params: { level: number; parentId?: number }) => {
+    const searchParams = new URLSearchParams();
+    searchParams.append('level', params.level.toString());
+    if (params.parentId) searchParams.append('parentId', params.parentId.toString());
+    return apiRequest<GeoJSON.FeatureCollection>(`/api/boundaries?${searchParams.toString()}`);
+  },
+
+  // Get election results data only (no geometry) - WITH CACHING
+  getElectionResultsData: async (electionId: number, params: { level: number; parentId?: number }): Promise<ElectionResultsData> => {
+    const cacheKey = getResultsCacheKey(electionId, params.level, params.parentId);
+
+    // Check cache first
+    const cached = electionResultsCache.get(cacheKey);
+    if (cached) {
+      console.log(`📦 Election results CACHE HIT: ${cacheKey}`);
+      return cached;
+    }
+
+    // Fetch from API
+    console.log(`🌐 Election results CACHE MISS: ${cacheKey}`);
+    const searchParams = new URLSearchParams();
+    searchParams.append('level', params.level.toString());
+    if (params.parentId) searchParams.append('parentId', params.parentId.toString());
+
+    const result = await apiRequest<ElectionResultsData>(`/api/elections/${electionId}/results?${searchParams.toString()}`);
+
+    // Cache the result
+    electionResultsCache.set(cacheKey, result);
+    console.log(`📦 Election results CACHED: ${cacheKey} (cache size: ${electionResultsCache.size})`);
+
+    return result;
+  },
+
+  // Get demographics data only (no geometry)
+  getDemographicsData: (params: { level: number; parentId?: number; censusYear?: number }) => {
+    const searchParams = new URLSearchParams();
+    searchParams.append('level', params.level.toString());
+    if (params.parentId) searchParams.append('parentId', params.parentId.toString());
+    if (params.censusYear) searchParams.append('censusYear', params.censusYear.toString());
+    return apiRequest<{
+      level: number;
+      parentId: number | null;
+      censusYear: number;
+      count: number;
+      data: Array<{
+        unitId: number;
+        unitName: string;
+        parentId: number | null;
+        totalPopulation: number;
+        malePopulation: number;
+        femalePopulation: number;
+        votingAgePopulation: number;
+        youthPopulation: number;
+        elderlyPopulation: number;
+        numberOfHouseholds: number;
+        parishCount: number;
+        votingAgePercent: number;
+        malePercent: number;
+      }>;
+    }>(`/api/demographics/data?${searchParams.toString()}`);
+  },
+
+  // Get issues data only (no geometry)
+  getIssuesData: (params: { level: number; parentId?: number }) => {
+    const searchParams = new URLSearchParams();
+    searchParams.append('level', params.level.toString());
+    if (params.parentId) searchParams.append('parentId', params.parentId.toString());
+    return apiRequest<{
+      level: number;
+      parentId: number | null;
+      count: number;
+      metadata: {
+        totalIssues: number;
+        unitsWithIssues: number;
+        maxIssuesPerUnit: number;
+      };
+      data: Array<{
+        unitId: number;
+        unitName: string;
+        parentId: number | null;
+        issueCount: number;
+        deaths: number;
+        injuries: number;
+        arrests: number;
+        fillColor: string;
+        topCategories: string;
+        level: number;
+      }>;
+    }>(`/api/issues/data?${searchParams.toString()}`);
+  },
+
+  // ============================================
+  // Published Statistics APIs (Official Data)
+  // ============================================
+
+  // Get all published election summaries
+  getPublishedElections: () =>
+    apiRequest<Array<{
+      id: number;
+      year: number;
+      electionType: string;
+      registeredVoters: number;
+      totalVotesCast: number;
+      validVotes: number;
+      invalidVotes: number;
+      turnoutPercentage: string;
+      pollingStations: number | null;
+      source: string;
+      candidateResults: Array<{
+        id: number;
+        candidateName: string;
+        partyAbbreviation: string | null;
+        votes: number;
+        percentage: string;
+        position: number;
+      }>;
+    }>>('/api/published/elections'),
+
+  // Get published election by year
+  getPublishedElection: (year: number, type?: string) => {
+    const query = type ? `?type=${type}` : '';
+    return apiRequest<{
+      id: number;
+      year: number;
+      electionType: string;
+      registeredVoters: number;
+      totalVotesCast: number;
+      validVotes: number;
+      invalidVotes: number;
+      turnoutPercentage: string;
+      pollingStations: number | null;
+      source: string;
+      candidateResults: Array<{
+        id: number;
+        candidateName: string;
+        partyAbbreviation: string | null;
+        votes: number;
+        percentage: string;
+        position: number;
+      }>;
+    }>(`/api/published/elections/${year}${query}`);
+  },
+
+  // Get all published parliament summaries
+  getPublishedParliaments: () =>
+    apiRequest<Array<{
+      id: number;
+      year: number;
+      parliamentNumber: number;
+      totalSeats: number;
+      constituencySeats: number;
+      womenReps: number;
+      updfReps: number;
+      youthReps: number;
+      disabilityReps: number;
+      workersReps: number;
+      elderReps: number;
+      exOfficioMembers: number;
+      source: string;
+      partySeats: Array<{
+        partyAbbreviation: string;
+        seats: number;
+      }>;
+    }>>('/api/published/parliament'),
+
+  // Get published parliament by year
+  getPublishedParliament: (year: number) =>
+    apiRequest<{
+      id: number;
+      year: number;
+      parliamentNumber: number;
+      totalSeats: number;
+      constituencySeats: number;
+      womenReps: number;
+      updfReps: number;
+      youthReps: number;
+      disabilityReps: number;
+      workersReps: number;
+      elderReps: number;
+      exOfficioMembers: number;
+      source: string;
+      partySeats: Array<{
+        partyAbbreviation: string;
+        seats: number;
+      }>;
+    }>(`/api/published/parliament/${year}`),
+
+  // Get women's representation trend
+  getWomenRepresentation: () =>
+    apiRequest<{
+      data: Array<{
+        id: number;
+        year: number;
+        parliamentNumber: number;
+        totalSeats: number;
+        totalWomenMps: number;
+        womenPercentage: number;
+        womenDistrictReps: number;
+        womenConstituency: number;
+        womenSpecialInterest: number;
+        source: string;
+        change: number;
+        direction: 'up' | 'down' | 'stable';
+      }>;
+      summary: {
+        earliest: { year: number; womenPercentage: number };
+        latest: { year: number; womenPercentage: number };
+        peak: { year: number; womenPercentage: number };
+        totalGrowth: number;
+      };
+    }>('/api/published/women-representation'),
+
+  // Get published incident summaries
+  getPublishedIncidents: () =>
+    apiRequest<{
+      data: Array<{
+        id: number;
+        year: number;
+        deathsReported: number | null;
+        injuriesReported: number | null;
+        arrestsReported: number | null;
+        petitionsFiled: number;
+        petitionsSuccessful: number;
+        observerRating: string | null;
+        keyIncidents: string | null;
+        source: string;
+      }>;
+      totals: {
+        totalDeaths: number;
+        totalInjuries: number;
+        totalArrests: number;
+        totalPetitions: number;
+        successfulPetitions: number;
+      };
+    }>('/api/published/incidents'),
+
+  // Get published incident by year
+  getPublishedIncident: (year: number) =>
+    apiRequest<{
+      id: number;
+      year: number;
+      deathsReported: number | null;
+      injuriesReported: number | null;
+      arrestsReported: number | null;
+      petitionsFiled: number;
+      petitionsSuccessful: number;
+      observerRating: string | null;
+      keyIncidents: string | null;
+      source: string;
+    }>(`/api/published/incidents/${year}`),
+
+  // Get LC chairpersons summaries
+  getPublishedLCChairpersons: (level?: number) => {
+    const query = level ? `?level=${level}` : '';
+    return apiRequest<Array<{
+      id: number;
+      year: number;
+      level: number;
+      totalUnits: number;
+      partyBreakdown: Record<string, number>;
+      dataCompleteness: string | null;
+      notes: string | null;
+      source: string;
+    }>>(`/api/published/lc-chairpersons${query}`);
+  },
+
+  // Get comprehensive year summary
+  getPublishedYearSummary: (year: number) =>
+    apiRequest<{
+      year: number;
+      election: any | null;
+      parliament: any | null;
+      womenRepresentation: any | null;
+      incidents: any | null;
+      lcChairpersons: any[];
+    }>(`/api/published/summary/${year}`),
+
+  // Get available years with published data
+  getPublishedYears: () =>
+    apiRequest<{
+      years: number[];
+      hasElectionData: number[];
+      hasParliamentData: number[];
+      hasIncidentData: number[];
+    }>('/api/published/years'),
 };

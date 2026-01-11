@@ -168,10 +168,30 @@ export function useElectionMap(options: UseElectionMapOptions = {}) {
   };
 }
 
+// Helper to safely parse JSON or return the value if already an object/array
+function safeJsonParse(value: any): any {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'object') return value; // Already an object/array
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value; // Return as-is if not valid JSON
+    }
+  }
+  return value;
+}
+
 // Helper to create popup HTML for parish results
 export function createResultsPopupHTML(props: any): string {
-  const winner = props.winner ? JSON.parse(props.winner) : null;
-  const candidates = props.candidates ? JSON.parse(props.candidates) : [];
+  // Parse candidates - might be JSON string or already an array
+  const candidates = safeJsonParse(props.candidates) || [];
+  const candidatesArray = Array.isArray(candidates) ? candidates : [];
+
+  // Winner info - props.winner is just the party name (string like "NUP")
+  // We need to find the top candidate for full winner info
+  const sortedCandidates = [...candidatesArray].sort((a: any, b: any) => (b.votes || 0) - (a.votes || 0));
+  const topCandidate = sortedCandidates[0];
 
   let popupHTML = `
     <div class="p-3">
@@ -183,25 +203,32 @@ export function createResultsPopupHTML(props: any): string {
     popupHTML += `<p class="text-sm text-gray-600 mb-2">Turnout: ${props.turnout}%</p>`;
   }
 
-  if (winner) {
+  // Show winner info from the top candidate
+  if (topCandidate) {
     popupHTML += `
       <div class="bg-green-100 p-2 rounded mb-2">
-        <p class="font-semibold">Winner: ${winner.name}</p>
-        <p class="text-sm">${winner.party} - ${(winner.votes || 0).toLocaleString()} votes</p>
+        <p class="font-semibold">Winner: ${topCandidate.name || 'Unknown'}</p>
+        <p class="text-sm">${topCandidate.partyName || props.winner || 'N/A'} - ${(topCandidate.votes || 0).toLocaleString()} votes</p>
+      </div>
+    `;
+  } else if (props.winner) {
+    // Fallback if no candidates data
+    popupHTML += `
+      <div class="bg-green-100 p-2 rounded mb-2">
+        <p class="font-semibold">Winner: ${props.winner}</p>
+        <p class="text-sm">${(props.winnerVotes || 0).toLocaleString()} votes</p>
       </div>
     `;
   }
 
-  if (candidates.length > 0) {
+  if (candidatesArray.length > 0) {
     popupHTML += `<div class="mt-2"><p class="text-sm font-semibold mb-1">All Candidates:</p>`;
-    candidates
-      .sort((a: any, b: any) => (b.votes || 0) - (a.votes || 0))
-      .forEach((c: any) => {
-        popupHTML += `
-          <p class="text-sm">
-            ${c.name} (${c.party}): ${(c.votes || 0).toLocaleString()}
-          </p>
-        `;
+    sortedCandidates.forEach((c: any) => {
+      popupHTML += `
+        <p class="text-sm">
+          ${c.name || 'Unknown'} (${c.partyName || 'N/A'}): ${(c.votes || 0).toLocaleString()}
+        </p>
+      `;
       });
     popupHTML += `</div>`;
   }

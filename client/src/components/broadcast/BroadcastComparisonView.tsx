@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Map, BarChart3, TrendingUp } from 'lucide-react';
+import { Map, BarChart3, TrendingUp, Play } from 'lucide-react';
 import { BroadcastMap } from './BroadcastMap';
 import { ComparisonCharts } from './ComparisonCharts';
 import { SwingMap } from './SwingMap';
+import { ReplayMode } from './ReplayMode';
 import { useBroadcastStore } from '../../stores/broadcastStore';
 import { useElections } from '../../hooks/useElectionData';
 
@@ -13,7 +14,7 @@ export function BroadcastComparisonView() {
   // Local state for showing selectors
   const [showLeftSelector, setShowLeftSelector] = useState(false);
   const [showRightSelector, setShowRightSelector] = useState(false);
-  const [comparisonMode, setComparisonMode] = useState<'maps' | 'charts' | 'swing'>('maps');
+  const [comparisonMode, setComparisonMode] = useState<'maps' | 'charts' | 'swing' | 'replay'>('maps');
 
   // Get election details
   const leftElection = elections?.find(e => e.id === selectedElectionId);
@@ -79,6 +80,17 @@ export function BroadcastComparisonView() {
           <TrendingUp size={18} />
           <span className="font-medium">Swing</span>
         </button>
+        <button
+          onClick={() => setComparisonMode('replay')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+            comparisonMode === 'replay'
+              ? 'bg-purple-500 text-white'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          }`}
+        >
+          <Play size={18} />
+          <span className="font-medium">Replay</span>
+        </button>
       </div>
 
       {/* Charts View */}
@@ -101,6 +113,16 @@ export function BroadcastComparisonView() {
             election2Id={comparisonElectionId}
             election1Name={leftElection?.name}
             election2Name={rightElection?.name}
+          />
+        </div>
+      )}
+
+      {/* Replay View */}
+      {comparisonMode === 'replay' && (
+        <div className="flex-1">
+          <ReplayMode
+            electionId={selectedElectionId}
+            electionName={leftElection?.name}
           />
         </div>
       )}

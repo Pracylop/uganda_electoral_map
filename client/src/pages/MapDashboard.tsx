@@ -12,6 +12,9 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useElectionsWithOffline } from '../hooks/useElectionData';
 import { invalidateElectionQueries } from '../lib/queryClient';
 import { useEffectiveBasemap } from '../hooks/useOnlineStatus';
+// cacheService removed - using static boundaries
+import { boundaryService } from '../lib/boundaryService';
+import { api } from '../lib/api';
 import type { DrillDownState, BreadcrumbItem } from '../hooks/useElectionMap';
 import {
   LEVEL_NAMES,
@@ -170,6 +173,20 @@ export function MapDashboard() {
   const navigationPopupRef = useRef<maplibregl.Popup | null>(null);
   const districtDataCacheRef = useRef<GeoJSON.FeatureCollection | null>(null);
 
+  // Prefetched election data (fetched in parallel with map loading)
+  const prefetchedDataRef = useRef<{
+    electionId: number;
+    level: number;
+    parentId: number | null;
+    geojson: GeoJSON.FeatureCollection;
+    bbox?: number[];
+  } | null>(null);
+
+  // Track if this is the initial load (show loading widget only on first load)
+  const isInitialLoadRef = useRef(true);
+
+  // Note: Map data caching is now handled by centralized cacheService
+
   // Results layer click handler ref (to prevent accumulating handlers)
   const resultsClickHandlerRef = useRef<((e: maplibregl.MapLayerMouseEvent) => void) | null>(null);
 
@@ -215,9 +232,97 @@ export function MapDashboard() {
     }
   }, [elections, searchParams]);
 
+  // PREFETCH: Only prefetch when map is NOT loaded yet (parallel loading optimization)
+  // Once map is loaded, drill-down uses loadElectionResults directly
+  useEffect(() => {
+    if (!selectedElection || leftMapLoaded) return; // Skip if map already loaded
+
+    const prefetchData = async () => {
+      const level = drillDown.currentLevel;
+      const parentId = drillDown.currentParentId;
+
+      // Check if we already have this data prefetched
+      const cached = prefetchedDataRef.current;
+      if (cached?.electionId === selectedElection && cached?.level === level && cached?.parentId === parentId) {
+        return; // Already prefetched
+      }
+
+      console.log(`Prefetching election ${selectedElection} data at level ${level}...`);
+
+      try {
+        // Step 1: Ensure boundaries are loaded (usually instant if preloaded)
+        await boundaryService.loadStaticBoundaries();
+
+        // Step 2: Fetch election data (tiny payload)
+        const resultsData = await api.getElectionResultsData(selectedElection, {
+          level,
+          parentId: parentId ?? undefined
+        });
+
+        // Step 3: Build parent filter from breadcrumb (for static boundaries)
+        const parentItem = drillDown.breadcrumb[drillDown.breadcrumb.length - 1];
+        const parentFilter = parentItem && parentItem.level > 0
+          ? { level: parentItem.level, name: parentItem.name }
+          : null;
+
+        // Step 4: Join boundaries with data (instant, client-side)
+        const geojson = boundaryService.createGeoJSON(level, resultsData.data, parentFilter);
+
+        // Calculate bbox
+        let bbox: number[] | undefined;
+        if (geojson.features && geojson.features.length > 0) {
+          const bounds = new maplibregl.LngLatBounds();
+          geojson.features.forEach((feature: any) => {
+            const addCoords = (coords: any) => {
+              if (typeof coords[0] === 'number') {
+                bounds.extend(coords as [number, number]);
+              } else {
+                coords.forEach(addCoords);
+              }
+            };
+            if (feature.geometry?.coordinates) {
+              addCoords(feature.geometry.coordinates);
+            }
+          });
+          if (!bounds.isEmpty()) {
+            bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+          }
+        }
+
+        // Store prefetched data
+        prefetchedDataRef.current = { electionId: selectedElection, level, parentId, geojson, bbox };
+        console.log(`Prefetched ${geojson.features?.length || 0} features for election ${selectedElection}`);
+
+        // Cache district-level data for basemap click
+        if (level === 2 && parentId === null) {
+          districtDataCacheRef.current = geojson;
+        }
+      } catch (err) {
+        console.error('Error prefetching election data:', err);
+      }
+    };
+
+    prefetchData();
+  }, [selectedElection, leftMapLoaded]); // Only depends on election and map load state
+
+  // LOAD: When map is ready, load/apply election data
   useEffect(() => {
     if (selectedElection && leftMapLoaded && mapRef.current) {
-      loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId);
+      // Check if we have matching prefetched data (from parallel load)
+      const cached = prefetchedDataRef.current;
+      if (cached?.electionId === selectedElection &&
+          cached?.level === drillDown.currentLevel &&
+          cached?.parentId === drillDown.currentParentId) {
+        // Use prefetched data (instant)
+        console.log('Using prefetched data');
+        renderElectionDataToMap(mapRef.current, cached.geojson, cached.bbox, drillDown.currentLevel);
+        isInitialLoadRef.current = false;
+      } else {
+        // Fetch fresh - show loading only on initial load, not drill-down
+        const showLoading = isInitialLoadRef.current;
+        loadElectionResults(selectedElection, drillDown.currentLevel, drillDown.currentParentId, showLoading);
+        isInitialLoadRef.current = false;
+      }
     }
   }, [selectedElection, drillDown.currentLevel, drillDown.currentParentId, leftMapLoaded]);
 
@@ -456,41 +561,13 @@ export function MapDashboard() {
     };
   }, [isPresentationMode]);
 
-  const loadElectionResults = async (
-    electionId: number,
-    level: number = 2,
-    parentId: number | null = null
+  // Render election GeoJSON to map (shared rendering logic)
+  const renderElectionDataToMap = (
+    map: maplibregl.Map,
+    geojson: GeoJSON.FeatureCollection,
+    bbox: number[] | undefined,
+    level: number
   ) => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    console.log('Loading election results for election:', electionId, 'level:', level, 'parentId:', parentId);
-    setIsMapDataLoading(true);
-
-    try {
-      // Use aggregated endpoint which has explode logic for MultiPolygons
-      let url = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/map/aggregated/${electionId}?level=${level}`;
-      if (parentId !== null) {
-        url += `&parentId=${parentId}`;
-      }
-
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-        }
-      });
-
-      if (!response.ok) throw new Error('Failed to load map data');
-
-      const data = await response.json();
-      // Handle both direct GeoJSON and wrapped response formats
-      const geojson = data.type === 'FeatureCollection' ? data : data;
-      console.log('GeoJSON features count:', geojson.features?.length || 0);
-
-      // Cache district-level data for basemap click navigation
-      if (level === 2 && parentId === null) {
-        districtDataCacheRef.current = geojson;
-      }
 
       // Remove existing results layers if present
       try {
@@ -649,9 +726,9 @@ export function MapDashboard() {
         easing: (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2  // Ease-in-out cubic
       };
 
-      if (data.bbox && data.bbox.length === 4) {
+      if (bbox && bbox.length === 4) {
         map.fitBounds(
-          [[data.bbox[0], data.bbox[1]], [data.bbox[2], data.bbox[3]]],
+          [[bbox[0], bbox[1]], [bbox[2], bbox[3]]],
           animationOptions
         );
       } else if (geojson.features && geojson.features.length > 0) {
@@ -683,12 +760,81 @@ export function MapDashboard() {
         };
         map.once('idle', closePopup);
       }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to load election results'
-      );
-      setIsMapDataLoading(false);
+  };
+
+  // Load election results - fetches data and renders (used for drill-down, not initial load)
+  const loadElectionResults = async (
+    electionId: number,
+    level: number = 2,
+    parentId: number | null = null,
+    showLoading: boolean = false // Don't show loading widget by default (data loads fast)
+  ) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (showLoading) {
+      setIsMapDataLoading(true);
     }
+
+    let geojson: GeoJSON.FeatureCollection;
+    let bbox: number[] | undefined;
+
+    try {
+      // Step 1: Ensure boundaries are loaded (cached after first load)
+      await boundaryService.loadStaticBoundaries();
+
+      // Step 2: Fetch election data only (tiny payload ~73KB vs 188MB)
+      const resultsData = await api.getElectionResultsData(electionId, {
+        level,
+        parentId: parentId ?? undefined
+      });
+
+      // Step 3: Build parent filter from breadcrumb (for static boundaries)
+      const parentItem = drillDown.breadcrumb[drillDown.breadcrumb.length - 1];
+      const parentFilter = parentItem && parentItem.level > 0
+        ? { level: parentItem.level, name: parentItem.name }
+        : null;
+
+      // Step 4: Join boundaries with data (instant, client-side)
+      geojson = boundaryService.createGeoJSON(level, resultsData.data, parentFilter);
+
+      // Calculate bbox from boundaries if not provided
+      if (geojson.features && geojson.features.length > 0) {
+        const bounds = new maplibregl.LngLatBounds();
+        geojson.features.forEach((feature: any) => {
+          const addCoords = (coords: any) => {
+            if (typeof coords[0] === 'number') {
+              bounds.extend(coords as [number, number]);
+            } else {
+              coords.forEach(addCoords);
+            }
+          };
+          if (feature.geometry?.coordinates) {
+            addCoords(feature.geometry.coordinates);
+          }
+        });
+        if (!bounds.isEmpty()) {
+          bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+        }
+      }
+
+      console.log(`Election ${electionId}: Joined ${geojson.features?.length || 0} features at level ${level}`);
+    } catch (err) {
+      console.error('Error loading map data:', err);
+      setIsMapDataLoading(false);
+      return;
+    }
+
+    // Cache district-level data for basemap click navigation
+    if (level === 2 && parentId === null) {
+      districtDataCacheRef.current = geojson;
+    }
+
+    // Update prefetch cache so future navigation doesn't refetch
+    prefetchedDataRef.current = { electionId, level, parentId, geojson, bbox };
+
+    // Render to map
+    renderElectionDataToMap(map, geojson, bbox, level);
   };
 
   const handleElectionChange = (electionId: number) => {
@@ -910,148 +1056,178 @@ export function MapDashboard() {
   ) => {
     if (!map) return;
 
+    let geojson: GeoJSON.FeatureCollection;
+    let bbox: number[] | undefined;
+
     try {
-      let url = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/map/aggregated/${electionId}?level=${level}`;
-      if (parentId !== null) {
-        url += `&parentId=${parentId}`;
-      }
+      // Step 1: Ensure boundaries are loaded (cached after first load)
+      await boundaryService.loadStaticBoundaries();
 
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-        }
+      // Step 2: Fetch election data only (tiny payload)
+      const resultsData = await api.getElectionResultsData(electionId, {
+        level,
+        parentId: parentId ?? undefined
       });
 
-      if (!response.ok) throw new Error('Failed to load map data');
+      // Step 3: Build parent filter from breadcrumb (for static boundaries)
+      // For right map, use rightDrillDown breadcrumb
+      const breadcrumb = isRightMap ? rightDrillDown.breadcrumb : drillDown.breadcrumb;
+      const parentItem = breadcrumb[breadcrumb.length - 1];
+      const parentFilter = parentItem && parentItem.level > 0
+        ? { level: parentItem.level, name: parentItem.name }
+        : null;
 
-      const data = await response.json();
-      const geojson = data.type === 'FeatureCollection' ? data : data;
+      // Step 4: Join boundaries with data (instant, client-side)
+      geojson = boundaryService.createGeoJSON(level, resultsData.data, parentFilter);
 
-      // Remove existing layers
-      try {
-        if (map.getLayer('results-fill')) map.removeLayer('results-fill');
-        if (map.getLayer('results-highlight')) map.removeLayer('results-highlight');
-        if (map.getLayer('results-outline')) map.removeLayer('results-outline');
-        if (map.getSource('results')) map.removeSource('results');
-      } catch (e) {
-        console.warn('Error removing existing layers:', e);
-      }
-
-      map.addSource('results', { type: 'geojson', data: geojson });
-
-      // Fill layer with smooth transitions
-      map.addLayer({
-        id: 'results-fill',
-        type: 'fill',
-        source: 'results',
-        paint: {
-          'fill-color': ['coalesce', ['get', 'winnerColor'], '#cccccc'],
-          'fill-opacity': 0.75,
-          'fill-opacity-transition': { duration: 800, delay: 0 },
-          'fill-color-transition': { duration: 500, delay: 0 }
-        }
-      });
-
-      // Highlight layer for hover
-      map.addLayer({
-        id: 'results-highlight',
-        type: 'fill',
-        source: 'results',
-        paint: {
-          'fill-color': '#ffffff',
-          'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.3, 0],
-          'fill-opacity-transition': { duration: 200, delay: 0 }
-        }
-      });
-
-      // Outline layer
-      map.addLayer({
-        id: 'results-outline',
-        type: 'line',
-        source: 'results',
-        paint: {
-          'line-color': '#333333',
-          'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2, 0.5],
-          'line-width-transition': { duration: 200, delay: 0 }
-        }
-      });
-
-      // Add click handler for drill-down (right map)
-      if (isRightMap) {
-        map.on('click', 'results-fill', (e) => {
-          if (!e.features || e.features.length === 0) return;
-          const feature = e.features[0];
-          const props = feature.properties;
-          if (!props) return;
-
-          const unitId = props.unitId;
-          const unitName = props.unitName;
-          const featureLevel = props.level || level;
-
-          // If not at parish level (5), drill down to children
-          if (featureLevel < 5) {
-            const nextLevel = featureLevel + 1;
-            const newDrillDownState = (prev: DrillDownState) => ({
-              currentLevel: nextLevel,
-              currentParentId: unitId,
-              breadcrumb: [
-                ...prev.breadcrumb,
-                { id: unitId, name: unitName, level: featureLevel }
-              ]
-            });
-
-            setRightDrillDown(newDrillDownState);
-
-            // Mirror to left map if sync is enabled
-            if (isSyncEnabledRef.current) {
-              setDrillDown(newDrillDownState);
+      // Calculate bbox from boundaries
+      if (geojson.features && geojson.features.length > 0) {
+        const bounds = new maplibregl.LngLatBounds();
+        geojson.features.forEach((feature: any) => {
+          const addCoords = (coords: any) => {
+            if (typeof coords[0] === 'number') {
+              bounds.extend(coords as [number, number]);
+            } else {
+              coords.forEach(addCoords);
             }
+          };
+          if (feature.geometry?.coordinates) {
+            addCoords(feature.geometry.coordinates);
           }
         });
-
-        // Hover effects with highlight for right map
-        let rightHoveredId: string | number | null = null;
-
-        map.on('mousemove', 'results-fill', (e) => {
-          map.getCanvas().style.cursor = 'pointer';
-          if (e.features && e.features.length > 0) {
-            const newId = e.features[0].id;
-            if (rightHoveredId !== null && rightHoveredId !== newId) {
-              map.setFeatureState({ source: 'results', id: rightHoveredId }, { hover: false });
-            }
-            if (newId !== undefined && newId !== null) {
-              rightHoveredId = newId;
-              map.setFeatureState({ source: 'results', id: rightHoveredId }, { hover: true });
-            }
-          }
-        });
-
-        map.on('mouseleave', 'results-fill', () => {
-          map.getCanvas().style.cursor = '';
-          if (rightHoveredId !== null) {
-            map.setFeatureState({ source: 'results', id: rightHoveredId }, { hover: false });
-            rightHoveredId = null;
-          }
-        });
+        if (!bounds.isEmpty()) {
+          bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+        }
       }
 
-      // Dramatic camera animation for right map
-      if (data.bbox && data.bbox.length === 4) {
-        isProgrammaticMoveRef.current = true;
-        map.fitBounds(
-          [[data.bbox[0], data.bbox[1]], [data.bbox[2], data.bbox[3]]],
-          {
-            padding: 50,
-            duration: 1500,
-            essential: true,
-            curve: 1.2,
-            easing: (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
-          }
-        );
-        setTimeout(() => { isProgrammaticMoveRef.current = false; }, 1600);
-      }
+      console.log(`Comparison map: Joined ${geojson.features?.length || 0} features at level ${level}`);
     } catch (err) {
-      console.error('Error loading map data:', err);
+      console.error('Error loading map data for comparison:', err);
+      return;
+    }
+
+    // Remove existing layers
+    try {
+      if (map.getLayer('results-fill')) map.removeLayer('results-fill');
+      if (map.getLayer('results-highlight')) map.removeLayer('results-highlight');
+      if (map.getLayer('results-outline')) map.removeLayer('results-outline');
+      if (map.getSource('results')) map.removeSource('results');
+    } catch (e) {
+      console.warn('Error removing existing layers:', e);
+    }
+
+    map.addSource('results', { type: 'geojson', data: geojson });
+
+    // Fill layer with smooth transitions
+    map.addLayer({
+      id: 'results-fill',
+      type: 'fill',
+      source: 'results',
+      paint: {
+        'fill-color': ['coalesce', ['get', 'winnerColor'], '#cccccc'],
+        'fill-opacity': 0.75,
+        'fill-opacity-transition': { duration: 800, delay: 0 },
+        'fill-color-transition': { duration: 500, delay: 0 }
+      }
+    });
+
+    // Highlight layer for hover
+    map.addLayer({
+      id: 'results-highlight',
+      type: 'fill',
+      source: 'results',
+      paint: {
+        'fill-color': '#ffffff',
+        'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.3, 0],
+        'fill-opacity-transition': { duration: 200, delay: 0 }
+      }
+    });
+
+    // Outline layer
+    map.addLayer({
+      id: 'results-outline',
+      type: 'line',
+      source: 'results',
+      paint: {
+        'line-color': '#333333',
+        'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2, 0.5],
+        'line-width-transition': { duration: 200, delay: 0 }
+      }
+    });
+
+    // Add click handler for drill-down (right map)
+    if (isRightMap) {
+      map.on('click', 'results-fill', (e) => {
+        if (!e.features || e.features.length === 0) return;
+        const feature = e.features[0];
+        const props = feature.properties;
+        if (!props) return;
+
+        const unitId = props.unitId;
+        const unitName = props.unitName;
+        const featureLevel = props.level || level;
+
+        // If not at parish level (5), drill down to children
+        if (featureLevel < 5) {
+          const nextLevel = featureLevel + 1;
+          const newDrillDownState = (prev: DrillDownState) => ({
+            currentLevel: nextLevel,
+            currentParentId: unitId,
+            breadcrumb: [
+              ...prev.breadcrumb,
+              { id: unitId, name: unitName, level: featureLevel }
+            ]
+          });
+
+          setRightDrillDown(newDrillDownState);
+
+          // Mirror to left map if sync is enabled
+          if (isSyncEnabledRef.current) {
+            setDrillDown(newDrillDownState);
+          }
+        }
+      });
+
+      // Hover effects with highlight for right map
+      let rightHoveredId: string | number | null = null;
+
+      map.on('mousemove', 'results-fill', (e) => {
+        map.getCanvas().style.cursor = 'pointer';
+        if (e.features && e.features.length > 0) {
+          const newId = e.features[0].id;
+          if (rightHoveredId !== null && rightHoveredId !== newId) {
+            map.setFeatureState({ source: 'results', id: rightHoveredId }, { hover: false });
+          }
+          if (newId !== undefined && newId !== null) {
+            rightHoveredId = newId;
+            map.setFeatureState({ source: 'results', id: rightHoveredId }, { hover: true });
+          }
+        }
+      });
+
+      map.on('mouseleave', 'results-fill', () => {
+        map.getCanvas().style.cursor = '';
+        if (rightHoveredId !== null) {
+          map.setFeatureState({ source: 'results', id: rightHoveredId }, { hover: false });
+          rightHoveredId = null;
+        }
+      });
+    }
+
+    // Dramatic camera animation for right map
+    if (bbox && bbox.length === 4) {
+      isProgrammaticMoveRef.current = true;
+      map.fitBounds(
+        [[bbox[0], bbox[1]], [bbox[2], bbox[3]]],
+        {
+          padding: 50,
+          duration: 1500,
+          essential: true,
+          curve: 1.2,
+          easing: (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+        }
+      );
+      setTimeout(() => { isProgrammaticMoveRef.current = false; }, 1600);
     }
   };
 

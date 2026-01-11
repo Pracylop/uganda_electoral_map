@@ -1,10 +1,28 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import { DataPreloader } from './DataPreloader';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requiredRole?: string[];
+}
+
+// Use sessionStorage to track if preload has happened this browser session
+// This persists across hot reloads but resets on page refresh
+const PRELOAD_KEY = 'electoral_map_preloaded';
+
+function hasPreloaded(): boolean {
+  return sessionStorage.getItem(PRELOAD_KEY) === 'true';
+}
+
+function markPreloaded(): void {
+  sessionStorage.setItem(PRELOAD_KEY, 'true');
+}
+
+// Reset preload flag when user logs out
+export function resetPreloadFlag(): void {
+  sessionStorage.removeItem(PRELOAD_KEY);
 }
 
 export function ProtectedRoute({
@@ -12,10 +30,17 @@ export function ProtectedRoute({
   requiredRole,
 }: ProtectedRouteProps) {
   const { isAuthenticated, isLoading, user, checkAuth } = useAuthStore();
+  const [showPreloader, setShowPreloader] = useState(!hasPreloaded());
 
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  // When preloader completes, mark as preloaded and hide it
+  const handlePreloadComplete = () => {
+    markPreloaded();
+    setShowPreloader(false);
+  };
 
   if (isLoading) {
     return (
@@ -40,6 +65,11 @@ export function ProtectedRoute({
         </div>
       </div>
     );
+  }
+
+  // Show preloader only on first protected route access after auth
+  if (showPreloader) {
+    return <DataPreloader onComplete={handlePreloadComplete}>{children}</DataPreloader>;
   }
 
   return <>{children}</>;

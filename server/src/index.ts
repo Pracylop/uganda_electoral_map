@@ -12,6 +12,8 @@ import issueRoutes from './routes/issueRoutes';
 import pollingStationRoutes from './routes/pollingStationRoutes';
 import demographicsRoutes from './routes/demographicsRoutes';
 import auditRoutes from './routes/auditRoutes';
+import boundaryRoutes from './routes/boundaryRoutes';
+import publishedStatsRoutes from './routes/publishedStatsRoutes';
 import { websocketService } from './services/websocketService';
 
 // Load environment variables
@@ -22,8 +24,8 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -46,6 +48,8 @@ app.use('/api/issues', issueRoutes);
 app.use('/api/polling-stations', pollingStationRoutes);
 app.use('/api/demographics', demographicsRoutes);
 app.use('/api/audit', auditRoutes);
+app.use('/api/boundaries', boundaryRoutes);
+app.use('/api/published', publishedStatsRoutes);
 
 // Start server
 app.listen(PORT, () => {

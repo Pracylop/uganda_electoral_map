@@ -10,6 +10,7 @@ import {
   updateIssue,
   deleteIssue
 } from '../controllers/issueController';
+import { getIssuesData } from '../controllers/boundaryController';
 import { authenticate, authorize } from '../middleware/auth';
 
 const router = Router();
@@ -25,6 +26,9 @@ router.get('/geojson', authenticate, getIssuesGeoJSON);
 
 // Get issues as choropleth (district polygons with counts)
 router.get('/choropleth', authenticate, getIssuesChoropleth);
+
+// Get issues data only (no geometry) - for boundary/data separation
+router.get('/data', authenticate, getIssuesData);
 
 // Get all issues with filters
 router.get('/', authenticate, getIssues);

@@ -4,6 +4,8 @@ import MapComponent from '../components/Map';
 import { MapSettingsWidget } from '../components/MapSettingsWidget';
 import { useEffectiveBasemap } from '../hooks/useOnlineStatus';
 import { api } from '../lib/api';
+// cacheService removed - using static boundaries
+import { boundaryService } from '../lib/boundaryService';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 type DemographicMetric = 'population' | 'votingAge' | 'votingAgePercent' | 'malePercent';
@@ -76,26 +78,6 @@ const metricLabels: Record<DemographicMetric, string> = {
   votingAgePercent: 'Voting Age %',
   malePercent: 'Male %',
 };
-
-// Cache key generator - now by LEVEL only (not parentId)
-function getLevelCacheKey(level: number): string {
-  return `demographics-level-${level}`;
-}
-
-// Type for cached data
-interface CachedMapData {
-  geojson: GeoJSON.FeatureCollection;
-  bbox?: [number, number, number, number];
-}
-
-// Helper to filter features by parentId
-function filterFeaturesByParent(geojson: GeoJSON.FeatureCollection, parentId: number): GeoJSON.FeatureCollection {
-  const filteredFeatures = geojson.features.filter(f => f.properties?.parentId === parentId);
-  return {
-    type: 'FeatureCollection',
-    features: filteredFeatures,
-  };
-}
 
 // Helper to calculate bbox from features
 function calculateBbox(features: GeoJSON.Feature[]): [number, number, number, number] | undefined {
@@ -214,9 +196,6 @@ export function DemographicsDashboard() {
     colors: colorScales.population.colors,
   });
 
-  // In-memory cache for GeoJSON data (persists for session)
-  const dataCache = useRef<Map<string, CachedMapData>>(new Map());
-
   // UI states
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('stats');
@@ -280,52 +259,36 @@ export function DemographicsDashboard() {
   // Pre-load state - tracks which levels are loaded
   const [preloadProgress, setPreloadProgress] = useState({ loading: false, levelsLoaded: new Set<number>() });
 
-  // Pre-load ALL data for levels 2, 3, 4, 5 in parallel (4 requests total, not 146!)
+  // Pre-load all boundaries (single static file now loads all 6 levels)
   const preloadAllLevels = useCallback(async () => {
     if (preloadProgress.loading || preloadProgress.levelsLoaded.size > 0) return;
 
     setPreloadProgress({ loading: true, levelsLoaded: new Set() });
-    console.log('Demographics: Pre-loading ALL levels (2, 3, 4, 5) in 4 parallel requests...');
+    console.log('Demographics: Loading static boundaries...');
 
-    const levelsToLoad = [2, 3, 4, 5];
+    try {
+      // Single call loads all 6 levels from static file
+      await boundaryService.loadStaticBoundaries();
+      const stats = boundaryService.getStats();
+      console.log('Demographics: Static boundaries loaded', stats);
 
-    await Promise.all(levelsToLoad.map(async (level) => {
-      const cacheKey = getLevelCacheKey(level);
-      if (dataCache.current.has(cacheKey)) {
-        console.log(`Demographics: Level ${level} already cached`);
-        return;
-      }
+      // Mark all levels as loaded
+      setPreloadProgress({
+        loading: false,
+        levelsLoaded: new Set([2, 3, 4, 5]),
+      });
+    } catch (err) {
+      console.error('Demographics: Failed to load boundaries:', err);
+      setPreloadProgress(prev => ({ ...prev, loading: false }));
+    }
 
-      try {
-        console.log(`Demographics: Fetching ALL level ${level} data...`);
-        const data = await api.getDemographicsGeoJSON({ level }); // No parentId = get ALL
-        if (data?.features?.length > 0) {
-          const geojson = data as GeoJSON.FeatureCollection;
-          const bbox = calculateBbox(geojson.features);
-          dataCache.current.set(cacheKey, { geojson, bbox });
-          console.log(`Demographics: Cached level ${level} - ${geojson.features.length} features`);
-        }
-      } catch (err) {
-        console.error(`Demographics: Failed to load level ${level}:`, err);
-      }
-
-      setPreloadProgress(prev => ({
-        ...prev,
-        levelsLoaded: new Set([...prev.levelsLoaded, level]),
-      }));
-    }));
-
-    setPreloadProgress(prev => ({ ...prev, loading: false }));
-    console.log(`Demographics: Pre-load complete! All levels cached.`);
+    console.log(`Demographics: Pre-load complete!`);
   }, [preloadProgress.loading, preloadProgress.levelsLoaded.size]);
 
-  // Load choropleth for current level (with level-based caching + client-side filtering)
+  // Load choropleth for current level (using boundary/data separation)
   const loadChoropleth = useCallback(async () => {
     if (!mapRef.current || !mapLoaded) return;
     const map = mapRef.current;
-
-    const levelCacheKey = getLevelCacheKey(currentLevel);
-    let levelData = dataCache.current.get(levelCacheKey);
 
     // Remove existing layers
     try {
@@ -337,53 +300,42 @@ export function DemographicsDashboard() {
       // Layers may not exist
     }
 
-    // If level not cached, fetch ALL data for this level (one request)
-    if (!levelData) {
-      console.log(`Demographics: Fetching ALL level ${currentLevel} data...`);
-      setIsLoadingChoropleth(true);
+    setIsLoadingChoropleth(true);
 
-      try {
-        const data = await api.getDemographicsGeoJSON({ level: currentLevel }); // No parentId = get ALL
-
-        if (!data || !data.features || data.features.length === 0) {
-          console.error('No data for this level');
-          setIsLoadingChoropleth(false);
-          return;
-        }
-
-        const geojson = data as GeoJSON.FeatureCollection;
-        const bbox = calculateBbox(geojson.features);
-
-        // Cache ALL data for this level
-        levelData = { geojson, bbox };
-        dataCache.current.set(levelCacheKey, levelData);
-        console.log(`Demographics: Cached level ${currentLevel} - ${geojson.features.length} total features`);
-      } catch (err) {
-        console.error('Failed to load demographics choropleth:', err);
-        setIsLoadingChoropleth(false);
-        return;
-      }
-    } else {
-      console.log(`Demographics: Using cached level ${currentLevel} data`);
-    }
-
-    // Filter by parentId if needed (client-side, instant!)
     let displayData: GeoJSON.FeatureCollection;
     let bbox: [number, number, number, number] | undefined;
 
-    if (parentId !== null) {
-      // Filter to only show children of selected parent
-      displayData = filterFeaturesByParent(levelData.geojson, parentId);
+    try {
+      // Step 1: Ensure boundaries are loaded (single static file)
+      await boundaryService.loadStaticBoundaries();
+
+      // Step 2: Fetch demographics DATA only (tiny ~30KB payload vs 100MB+)
+      const response = await api.getDemographicsData({
+        level: currentLevel,
+        parentId: parentId ?? undefined
+      });
+
+      // Step 3: Build parent filter from breadcrumbs (for static boundaries)
+      const parentItem = breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length - 1] : null;
+      const parentFilter = parentItem
+        ? { level: parentItem.level, name: parentItem.name }
+        : null;
+
+      // Step 4: Join boundaries with data (instant, client-side)
+      displayData = boundaryService.createGeoJSON(currentLevel, response.data, parentFilter);
+
+      // Calculate bbox from features
       bbox = calculateBbox(displayData.features);
-      console.log(`Demographics: Filtered to ${displayData.features.length} features for parent ${parentId}`);
-    } else {
-      // Show all features at this level
-      displayData = levelData.geojson;
-      bbox = levelData.bbox;
+
+      console.log(`Demographics: Joined ${displayData.features.length} features at level ${currentLevel}`);
+    } catch (err) {
+      console.error('Failed to load demographics choropleth:', err);
+      setIsLoadingChoropleth(false);
+      return;
     }
 
     if (displayData.features.length === 0) {
-      console.warn('No features to display after filtering');
+      console.warn('No features to display');
       setIsLoadingChoropleth(false);
       return;
     }
@@ -479,7 +431,7 @@ export function DemographicsDashboard() {
     if (currentLevel === 2 && parentId === null) {
       preloadAllLevels();
     }
-  }, [mapLoaded, currentLevel, parentId, metric, preloadAllLevels]);
+  }, [mapLoaded, currentLevel, parentId, metric, breadcrumbs, preloadAllLevels]);
 
   // Load choropleth when level/parent changes
   useEffect(() => {
@@ -576,17 +528,18 @@ export function DemographicsDashboard() {
         return;
       }
 
-      // Click was on basemap - check cached district data
+      // Click was on basemap - check district boundaries
       const { lng, lat } = e.lngLat;
-      const districtCacheKey = getLevelCacheKey(2);
-      const districtData = dataCache.current.get(districtCacheKey);
 
-      if (!districtData) {
-        return; // No cached district data
+      // Use boundaryService to get district boundaries
+      if (!boundaryService.hasLevel(2)) {
+        return; // District boundaries not loaded
       }
 
+      const districtGeoJSON = boundaryService.getBoundariesGeoJSON(2);
+
       // Find which district contains the clicked point
-      const clickedDistrict = districtData.geojson.features.find(feature => {
+      const clickedDistrict = districtGeoJSON.features.find(feature => {
         if (!feature.geometry) return false;
         return pointInPolygon([lng, lat], feature.geometry);
       });

@@ -78,6 +78,9 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     // Don't trigger shortcuts in input fields
     if (isInputFocused()) return;
 
+    // Guard against undefined key (e.g., modifier-only events)
+    if (!event.key) return;
+
     const key = event.key.toLowerCase();
 
     // Handle help shortcut (? or Shift+/)

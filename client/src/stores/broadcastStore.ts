@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ViewMode = 'map' | 'dashboard' | 'comparison' | 'issues' | 'demographics';
+export type ViewMode = 'home' | 'map' | 'dashboard' | 'comparison' | 'issues' | 'demographics' | 'past-elections' | 'current-election' | 'incidents-home' | 'demographics-home';
 export type SidebarPosition = 'left' | 'right';
 export type IssuesInteractionMode = 'stats' | 'view';
 export type BasemapSource = 'auto' | 'online' | 'offline';
@@ -51,6 +51,7 @@ interface BroadcastState {
     issues: boolean;
     historical: boolean;
     boundaries: boolean;
+    pollingStations: boolean;
   };
 
   // Basemap settings
@@ -132,7 +133,7 @@ const initialState = {
   selectedIssueDistrictName: null as string | null,
   selectedIssueLevel: null as number | null,
   issuesInteractionMode: 'stats' as IssuesInteractionMode,
-  viewMode: 'map' as ViewMode,
+  viewMode: 'home' as ViewMode,
   selectedElectionId: null,
   comparisonElectionId: null,
   drillDownStack: [{ level: 2, regionId: null, regionName: 'Uganda' }],
@@ -145,6 +146,7 @@ const initialState = {
     issues: false,
     historical: false,
     boundaries: true,
+    pollingStations: false,
   },
   basemapOpacity: 50, // Default 50% - balanced between basemap and choropleth
   basemapSource: (localStorage.getItem('basemapSource') as BasemapSource) || 'auto',

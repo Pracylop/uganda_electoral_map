@@ -59,6 +59,7 @@ model PoliticalParty {
   // Relations
   memberships PartyMembership[]
   candidates  Candidate[]
+  publishedPartySeats PublishedPartySeats[]
 
   @@map("political_parties")
 }
@@ -114,6 +115,7 @@ model Person {
   dateOfBirth DateTime? @map("date_of_birth") @db.Date
   gender      String?   @db.VarChar(20)
   biography   String?   @db.Text
+  imageUrl    String?   @map("image_url") @db.VarChar(500)  // Portrait photo URL
   createdAt   DateTime  @default(now()) @map("created_at")
 
   // Relations
@@ -184,6 +186,7 @@ model Election {
   summaries       ElectionSummary[]
   issues          ElectoralIssue[]
   pollingStations PollingStationElection[]
+  publishedSummaries PublishedElectionSummary[]
 
   @@index([year])
   @@index([electionTypeId])
@@ -212,6 +215,7 @@ model Candidate {
   electoralArea AdministrativeUnit? @relation("CandidateElectoralArea", fields: [electoralAreaId], references: [id])
   results       Result[]
   issuesInvolved ElectoralIssueCandidate[]
+  publishedResults PublishedCandidateResult[]
 
   @@unique([electionId, personId])
   @@index([electionId])
@@ -551,4 +555,173 @@ model AuditLog {
   @@index([actionType])
   @@index([timestamp])
   @@map("audit_log")
+}
+
+// ============================================================================
+// PUBLISHED STATISTICS - Official data from authoritative sources
+// ============================================================================
+
+// Published Election Summary - Official election-wide statistics
+model PublishedElectionSummary {
+  id                 Int       @id @default(autoincrement())
+  electionId         Int?      @map("election_id")
+  year               Int
+  electionType       String    @map("election_type") @db.VarChar(50)
+
+  // Voter Statistics
+  registeredVoters   Int       @map("registered_voters")
+  totalVotesCast     Int       @map("total_votes_cast")
+  validVotes         Int       @map("valid_votes")
+  invalidVotes       Int       @map("invalid_votes")
+  turnoutPercentage  Decimal   @map("turnout_percentage") @db.Decimal(5, 2)
+  pollingStations    Int?      @map("polling_stations")
+
+  // Source Attribution
+  source             String    @db.VarChar(200)
+  sourceUrl          String?   @map("source_url") @db.VarChar(500)
+  notes              String?   @db.Text
+
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  election           Election? @relation(fields: [electionId], references: [id])
+  candidateResults   PublishedCandidateResult[]
+
+  @@unique([year, electionType])
+  @@index([year])
+  @@map("published_election_summaries")
+}
+
+// Published Candidate Result - Official candidate results
+model PublishedCandidateResult {
+  id                  Int       @id @default(autoincrement())
+  summaryId           Int       @map("summary_id")
+  candidateId         Int?      @map("candidate_id")
+
+  // Candidate Info (denormalized for independence)
+  candidateName       String    @map("candidate_name") @db.VarChar(100)
+  partyAbbreviation   String?   @map("party_abbreviation") @db.VarChar(20)
+
+  // Results
+  votes               Int
+  percentage          Decimal   @db.Decimal(5, 2)
+  position            Int
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  summary             PublishedElectionSummary @relation(fields: [summaryId], references: [id], onDelete: Cascade)
+  candidate           Candidate? @relation(fields: [candidateId], references: [id])
+
+  @@unique([summaryId, candidateName])
+  @@index([summaryId])
+  @@map("published_candidate_results")
+}
+
+// Published Parliament Summary - Parliamentary composition
+model PublishedParliamentSummary {
+  id                 Int       @id @default(autoincrement())
+  year               Int       @unique
+  parliamentNumber   Int       @map("parliament_number")
+  totalSeats         Int       @map("total_seats")
+
+  // Seat Categories
+  constituencySeats  Int       @map("constituency_seats")
+  womenReps          Int       @map("women_reps")
+  updfReps           Int       @map("updf_reps")
+  youthReps          Int       @map("youth_reps")
+  disabilityReps     Int       @map("disability_reps")
+  workersReps        Int       @map("workers_reps")
+  elderReps          Int       @map("elder_reps")
+  exOfficioMembers   Int       @map("ex_officio_members")
+
+  // Source
+  source             String    @db.VarChar(200)
+  sourceUrl          String?   @map("source_url") @db.VarChar(500)
+
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  partySeats         PublishedPartySeats[]
+
+  @@map("published_parliament_summaries")
+}
+
+// Published Party Seats - Party seats in parliament
+model PublishedPartySeats {
+  id                 Int       @id @default(autoincrement())
+  parliamentId       Int       @map("parliament_id")
+  partyId            Int?      @map("party_id")
+  partyAbbreviation  String    @map("party_abbreviation") @db.VarChar(20)
+  seats              Int
+
+  // Relations
+  parliament         PublishedParliamentSummary @relation(fields: [parliamentId], references: [id], onDelete: Cascade)
+  party              PoliticalParty? @relation(fields: [partyId], references: [id])
+
+  @@unique([parliamentId, partyAbbreviation])
+  @@map("published_party_seats")
+}
+
+// Published Women Representation - Historical women's representation
+model PublishedWomenRepresentation {
+  id                   Int       @id @default(autoincrement())
+  year                 Int       @unique
+  parliamentNumber     Int       @map("parliament_number")
+  totalSeats           Int       @map("total_seats")
+  totalWomenMps        Int       @map("total_women_mps")
+  womenPercentage      Decimal   @map("women_percentage") @db.Decimal(5, 2)
+  womenDistrictReps    Int       @map("women_district_reps")
+  womenConstituency    Int       @map("women_constituency")
+  womenSpecialInterest Int       @map("women_special_interest")
+  source               String    @db.VarChar(200)
+
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  @@map("published_women_representation")
+}
+
+// Published Incident Summary - Election incident statistics
+model PublishedIncidentSummary {
+  id                  Int       @id @default(autoincrement())
+  year                Int       @unique
+
+  // Casualties
+  deathsReported      Int?      @map("deaths_reported")
+  injuriesReported    Int?      @map("injuries_reported")
+  arrestsReported     Int?      @map("arrests_reported")
+
+  // Legal
+  petitionsFiled      Int       @map("petitions_filed")
+  petitionsSuccessful Int       @map("petitions_successful")
+
+  // Assessment
+  observerRating      String?   @map("observer_rating") @db.VarChar(100)
+  keyIncidents        String?   @map("key_incidents") @db.Text
+
+  // Source
+  source              String    @db.VarChar(200)
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  @@map("published_incident_summaries")
+}
+
+// Published LC Chairpersons - Local council chairpersons by party
+model PublishedLCChairpersons {
+  id                 Int       @id @default(autoincrement())
+  year               Int
+  level              Int       // 3=SubCounty, 5=District
+  totalUnits         Int       @map("total_units")
+
+  // By Party (JSON for flexibility)
+  partyBreakdown     Json      @map("party_breakdown")
+
+  dataCompleteness   String?   @map("data_completeness") @db.VarChar(50)
+  notes              String?   @db.Text
+  source             String    @db.VarChar(200)
+
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  @@unique([year, level])
+  @@map("published_lc_chairpersons")
 }

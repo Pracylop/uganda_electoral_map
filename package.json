@@ -1,5 +1,15 @@
 {
+  "name": "uganda-electoral-map",
+  "version": "1.0.0",
+  "description": "Broadcast-quality GIS electoral results visualization for Uganda's 2026 elections",
+  "scripts": {
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
   "devDependencies": {
+    "@tauri-apps/api": "^2.9.1",
+    "@tauri-apps/cli": "^2.9.6",
     "autoprefixer": "^10.4.23",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18"

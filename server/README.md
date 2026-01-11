@@ -7,7 +7,7 @@ Backend server for the Uganda Electoral Map application providing REST API and W
 - **Runtime**: Node.js 20 LTS
 - **Framework**: Express.js
 - **Language**: TypeScript
-- **Database**: PostgreSQL 15 + PostGIS 3.3
+- **Database**: PostgreSQL 15 (PostGIS no longer required)
 - **ORM**: Prisma
 - **Authentication**: JWT + bcrypt
 - **Real-time**: WebSockets (express-ws)
@@ -36,7 +36,7 @@ server/
 ### Prerequisites
 
 - Node.js 20 LTS or higher
-- PostgreSQL 15+ with PostGIS 3.3+ extension
+- PostgreSQL 15+ (PostGIS extension no longer required - spatial queries use Turf.js)
 - npm or yarn
 
 ### Installation

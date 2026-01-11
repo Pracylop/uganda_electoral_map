@@ -112,11 +112,19 @@ export function useWebSocket(onMessage: (message: WebSocketMessage) => void) {
   }, [setStatus, setWsConnected, incrementReconnectAttempts, resetReconnectAttempts]);
 
   useEffect(() => {
-    // Initial connection
-    connect();
+    // Track if component is mounted (handles React Strict Mode double-invoke)
+    let isMounted = true;
+
+    // Small delay to avoid Strict Mode race condition
+    const connectTimeout = setTimeout(() => {
+      if (isMounted) {
+        connect();
+      }
+    }, 100);
 
     // Listen for browser online/offline events
     const handleOnline = () => {
+      if (!isMounted) return;
       console.log('Browser is online');
       setStatus('reconnecting');
       // Reset delay when coming back online
@@ -128,6 +136,7 @@ export function useWebSocket(onMessage: (message: WebSocketMessage) => void) {
     };
 
     const handleOffline = () => {
+      if (!isMounted) return;
       console.log('Browser is offline');
       setStatus('offline');
       // Clear any pending reconnection attempts
@@ -142,6 +151,8 @@ export function useWebSocket(onMessage: (message: WebSocketMessage) => void) {
 
     // Cleanup on unmount
     return () => {
+      isMounted = false;
+      clearTimeout(connectTimeout);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
 

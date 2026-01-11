@@ -3,6 +3,8 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Filter, MousePointer, BarChart3, Home } from 'lucide-react';
 import { useBroadcastStore } from '../../stores/broadcastStore';
+import { useEffectiveBasemap } from '../../hooks/useOnlineStatus';
+import { getMapStyle, UGANDA_CENTER as MAP_CENTER } from '../../lib/mapStyles';
 import { api } from '../../lib/api';
 
 interface BroadcastIssuesMapProps {
@@ -10,7 +12,8 @@ interface BroadcastIssuesMapProps {
   interactionsDisabled?: boolean;
 }
 
-const UGANDA_CENTER: [number, number] = [32.5825, 1.3733];
+// Use shared constants from mapStyles.ts
+const UGANDA_CENTER = MAP_CENTER;
 const INITIAL_ZOOM = 6.5;
 
 // Uganda bounding box [southwest, northeast]
@@ -155,34 +158,23 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
     resetToNational,
   } = useBroadcastStore();
 
+  // Get effective basemap mode (online/offline)
+  const effectiveBasemap = useEffectiveBasemap();
+  const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
   // Check if filters are active
   const hasFilters = selectedCategoryIds.length > 0 || issuesDateRange.startDate || issuesDateRange.endDate;
 
-  // Initialize map
+  // Initialize map with dynamic basemap (online/offline)
   useEffect(() => {
     if (map.current || !mapContainer.current) return;
 
+    // Get appropriate style based on basemap mode
+    const mapStyle = getMapStyle(effectiveBasemap, isOnline);
+
     map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: {
-        version: 8,
-        sources: {
-          'osm': {
-            type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-            tileSize: 256,
-            attribution: '&copy; OpenStreetMap Contributors',
-            maxzoom: 19,
-          },
-        },
-        layers: [
-          {
-            id: 'osm',
-            type: 'raster',
-            source: 'osm',
-          },
-        ],
-      },
+      style: mapStyle,
       center: UGANDA_CENTER,
       zoom: INITIAL_ZOOM,
       dragRotate: true,
@@ -482,8 +474,13 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
     mapInstance.on('click', 'issues-choropleth-fill', handleClick);
 
     return () => {
-      if (choroplethClickHandlerRef.current && mapInstance.getLayer('issues-choropleth-fill')) {
-        mapInstance.off('click', 'issues-choropleth-fill', choroplethClickHandlerRef.current);
+      // Safely cleanup - map may be destroyed during unmount
+      try {
+        if (choroplethClickHandlerRef.current && mapInstance) {
+          mapInstance.off('click', 'issues-choropleth-fill', choroplethClickHandlerRef.current);
+        }
+      } catch (e) {
+        // Map already destroyed
       }
       if (popup.current) {
         popup.current.remove();
@@ -566,8 +563,13 @@ export function BroadcastIssuesMap({ className, interactionsDisabled }: Broadcas
     mapInstance.on('click', handleBasemapClick);
 
     return () => {
-      if (basemapClickHandlerRef.current) {
-        mapInstance.off('click', basemapClickHandlerRef.current);
+      // Safely cleanup - map may be destroyed during unmount
+      try {
+        if (basemapClickHandlerRef.current && mapInstance) {
+          mapInstance.off('click', basemapClickHandlerRef.current);
+        }
+      } catch (e) {
+        // Map already destroyed
       }
       if (navigationPopupRef.current) {
         navigationPopupRef.current.remove();

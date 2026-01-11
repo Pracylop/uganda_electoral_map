@@ -2,6 +2,10 @@ import { useCallback, useRef, useEffect, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useBroadcastStore } from '../../stores/broadcastStore';
+import { useEffectiveBasemap } from '../../hooks/useOnlineStatus';
+import { getMapStyle, UGANDA_CENTER as MAP_CENTER } from '../../lib/mapStyles';
+import { ReportingProgress } from './ReportingProgress';
+import { PollingStationsLayer } from '../PollingStationsLayer';
 
 interface BroadcastMapProps {
   className?: string;
@@ -18,8 +22,9 @@ interface BroadcastMapProps {
   interactionsDisabled?: boolean;
 }
 
-const UGANDA_CENTER: [number, number] = [32.5825, 1.3733];
-const INITIAL_ZOOM = 6.0; // Slightly more zoomed out to fit Uganda
+// Use shared constants from mapStyles.ts (MAP_CENTER, MAP_ZOOM)
+const UGANDA_CENTER = MAP_CENTER;
+const INITIAL_ZOOM = 6.0; // Slightly more zoomed out for broadcast
 
 // Cache key generator for GeoJSON data
 function getCacheKey(electionId: number, level: number, parentId: number | null): string {
@@ -63,36 +68,26 @@ export function BroadcastMap({
     highlightedRegions,
     highlightColor,
     toggleRegionHighlight,
+    layers,
   } = useBroadcastStore();
 
   // Use prop election ID if provided, otherwise use store
   const selectedElectionId = propElectionId !== undefined ? propElectionId : storeElectionId;
 
-  // Initialize map
+  // Get effective basemap mode (online/offline)
+  const effectiveBasemap = useEffectiveBasemap();
+  const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+  // Initialize map with dynamic basemap (online/offline)
   useEffect(() => {
     if (map.current || !mapContainer.current) return;
 
+    // Get appropriate style based on basemap mode
+    const mapStyle = getMapStyle(effectiveBasemap, isOnline);
+
     map.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: {
-        version: 8,
-        sources: {
-          'osm': {
-            type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-            tileSize: 256,
-            attribution: '&copy; OpenStreetMap Contributors',
-            maxzoom: 19,
-          },
-        },
-        layers: [
-          {
-            id: 'osm',
-            type: 'raster',
-            source: 'osm',
-          },
-        ],
-      },
+      style: mapStyle,
       center: UGANDA_CENTER,
       zoom: INITIAL_ZOOM,
       // Note: No maxBounds - allows free zooming to see entire Uganda
@@ -189,14 +184,16 @@ export function BroadcastMap({
     let geojson: GeoJSON.FeatureCollection;
     let bbox: [number, number, number, number] | undefined;
 
+    const isCacheHit = !!cached;
+
     if (cached) {
       // Use cached data - no loading indicator needed
-      console.log('BroadcastMap: Using cached data for', cacheKey);
+      console.log('🚀 CACHE HIT:', cacheKey, '- features:', cached.geojson.features?.length);
       geojson = cached.geojson;
       bbox = cached.bbox;
     } else {
       // Fetch from API
-      console.log('BroadcastMap: Fetching from API', { electionId, level, parentId });
+      console.log('🌐 CACHE MISS - Fetching from API:', { electionId, level, parentId });
       setIsDataLoading(true);
 
       try {
@@ -294,9 +291,10 @@ export function BroadcastMap({
     }
 
     // Animate to bounds with generous padding for broadcast screens
+    // Use faster animation for cached data (instant feel)
     const animationOptions = {
       padding: { top: 100, bottom: 100, left: 100, right: 100 },
-      duration: 1500,
+      duration: isCacheHit ? 500 : 1500,  // 0.5s for cache, 1.5s for fresh load
       essential: true,
       curve: 1.2,
       easing: (t: number) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
@@ -564,10 +562,17 @@ export function BroadcastMap({
     mapInstance.on('mouseleave', 'results-fill', handleMouseLeave);
 
     return () => {
-      mapInstance.off('click', 'results-fill', handleChoroplethClick);
-      mapInstance.off('click', handleBasemapClick);
-      mapInstance.off('mousemove', 'results-fill', handleMouseMove);
-      mapInstance.off('mouseleave', 'results-fill', handleMouseLeave);
+      // Safely cleanup - map may be destroyed during unmount
+      try {
+        if (mapInstance) {
+          mapInstance.off('click', 'results-fill', handleChoroplethClick);
+          mapInstance.off('click', handleBasemapClick);
+          mapInstance.off('mousemove', 'results-fill', handleMouseMove);
+          mapInstance.off('mouseleave', 'results-fill', handleMouseLeave);
+        }
+      } catch (e) {
+        // Map already destroyed
+      }
     };
   }, [isLoaded, currentLevel, onRegionClick, storeDrillDown, navigateToDistrict, selectedElectionId, disableBasemapNavigation, annotationMode, toggleRegionHighlight, highlightColor]);
 
@@ -591,6 +596,18 @@ export function BroadcastMap({
           {label}
         </div>
       )}
+
+      {/* Reporting Progress Indicator */}
+      {!label && selectedElectionId && (
+        <ReportingProgress electionId={selectedElectionId} />
+      )}
+
+      {/* Polling Stations Layer */}
+      <PollingStationsLayer
+        map={map.current}
+        visible={layers.pollingStations && isLoaded}
+        electionId={selectedElectionId ?? undefined}
+      />
 
       {/* Loading Indicator */}
       {isDataLoading && (

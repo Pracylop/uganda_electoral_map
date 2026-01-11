@@ -1,4 +1,4 @@
-import { X, Globe, HardDrive, Zap, Wifi, WifiOff } from 'lucide-react';
+import { X, Globe, HardDrive, Zap, Wifi, WifiOff, MapPin } from 'lucide-react';
 import { useBroadcastStore } from '../../stores/broadcastStore';
 
 export function LayersPanel() {
@@ -11,7 +11,9 @@ export function LayersPanel() {
     setBasemapOpacity,
     basemapSource,
     setBasemapSource,
-    isOnline
+    isOnline,
+    layers,
+    toggleLayer,
   } = useBroadcastStore();
 
   if (!layersPanelOpen) return null;
@@ -140,6 +142,45 @@ export function LayersPanel() {
                 <div className="text-xs text-gray-400">
                   Works without internet, fewer labels
                 </div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* Map Layers */}
+        <div className="p-4 border-b border-gray-800">
+          <h3 className="text-white font-medium mb-3">Map Layers</h3>
+          <div className="space-y-2">
+            {/* Polling Stations Toggle */}
+            <button
+              onClick={() => toggleLayer('pollingStations')}
+              className={`
+                w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left
+                ${layers.pollingStations
+                  ? 'bg-blue-500/20 border border-blue-500/50'
+                  : 'bg-gray-800 border border-gray-700 hover:border-gray-600'
+                }
+              `}
+            >
+              <div className={`p-2 rounded-lg ${layers.pollingStations ? 'bg-blue-500/30' : 'bg-gray-700'}`}>
+                <MapPin size={18} className={layers.pollingStations ? 'text-blue-500' : 'text-gray-400'} />
+              </div>
+              <div className="flex-1">
+                <div className={`font-medium ${layers.pollingStations ? 'text-blue-500' : 'text-white'}`}>
+                  Polling Stations
+                </div>
+                <div className="text-xs text-gray-400">
+                  ~51K stations clustered by parish
+                </div>
+              </div>
+              <div className={`
+                w-10 h-6 rounded-full transition-colors relative
+                ${layers.pollingStations ? 'bg-blue-500' : 'bg-gray-600'}
+              `}>
+                <div className={`
+                  absolute top-1 w-4 h-4 rounded-full bg-white transition-transform
+                  ${layers.pollingStations ? 'translate-x-5' : 'translate-x-1'}
+                `} />
               </div>
             </button>
           </div>

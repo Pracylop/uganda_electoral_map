@@ -215,7 +215,7 @@ const NationalDashboard: React.FC<NationalDashboardProps> = ({ electionId, onClo
               ))}
             </div>
           </>
-        ) : (
+        ) : data.candidateResults ? (
           // Presidential: Show candidate votes
           <>
             <h3>Results by Candidate</h3>
@@ -233,7 +233,7 @@ const NationalDashboard: React.FC<NationalDashboardProps> = ({ electionId, onClo
               ))}
             </div>
           </>
-        )}
+        ) : null}
       </div>
 
       {/* Regional Breakdown (Presidential elections only) */}

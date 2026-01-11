@@ -1,6 +1,42 @@
 import { Request, Response } from 'express';
 import prisma from '../config/database';
 import { createAuditLog } from '../middleware/auditLog';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Directory for candidate images (relative to client public folder)
+// __dirname is app/server/src/controllers, so go up 3 levels to app/, then into client/public/images/candidates
+const CANDIDATE_IMAGES_DIR = path.resolve(__dirname, '../../../client/public/images/candidates');
+
+// Helper to save base64 image to file
+const saveBase64Image = (base64Data: string, candidateId: number): string | null => {
+  try {
+    // Check if it's a base64 data URL
+    const matches = base64Data.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!matches) {
+      return null; // Not a base64 image, return as-is (might be a URL)
+    }
+
+    const extension = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+    const imageData = matches[2];
+    const filename = `candidate_${candidateId}_${Date.now()}.${extension}`;
+    const filepath = path.join(CANDIDATE_IMAGES_DIR, filename);
+
+    // Ensure directory exists
+    if (!fs.existsSync(CANDIDATE_IMAGES_DIR)) {
+      fs.mkdirSync(CANDIDATE_IMAGES_DIR, { recursive: true });
+    }
+
+    // Write the file
+    fs.writeFileSync(filepath, Buffer.from(imageData, 'base64'));
+
+    // Return the relative URL path
+    return `/images/candidates/${filename}`;
+  } catch (error) {
+    console.error('Error saving image:', error);
+    return null;
+  }
+};
 
 // Helper to get client IP address
 const getClientIp = (req: Request): string => {
@@ -130,7 +166,15 @@ export const updateCandidate = async (req: Request, res: Response): Promise<void
     if (partyId !== undefined) updateData.partyId = partyId ? parseInt(partyId) : null;
     if (electoralAreaId !== undefined) updateData.electoralAreaId = electoralAreaId ? parseInt(electoralAreaId) : null;
     if (ballotOrder !== undefined) updateData.ballotOrder = ballotOrder ? parseInt(ballotOrder) : null;
-    if (photoUrl !== undefined) updateData.photoUrl = photoUrl;
+    if (photoUrl !== undefined) {
+      // Check if it's a base64 image and save to file
+      if (photoUrl && photoUrl.startsWith('data:image/')) {
+        const savedPath = saveBase64Image(photoUrl, candidateId);
+        updateData.photoUrl = savedPath || photoUrl.substring(0, 255); // Fallback to truncated if save fails
+      } else {
+        updateData.photoUrl = photoUrl;
+      }
+    }
     if (isIndependent !== undefined) updateData.isIndependent = isIndependent;
 
     const candidate = await prisma.candidate.update({
@@ -252,9 +296,19 @@ export const getCandidatesByElection = async (req: Request, res: Response): Prom
     const candidates = await prisma.candidate.findMany({
       where: { electionId },
       include: {
-        person: { select: { fullName: true } },
+        person: {
+          select: {
+            id: true,
+            fullName: true,
+            dateOfBirth: true,
+            gender: true,
+            biography: true,
+            imageUrl: true
+          }
+        },
         party: { select: { name: true, abbreviation: true, color: true } },
         electoralArea: { select: { name: true, code: true } },
+        election: { select: { id: true, name: true, year: true } },
         _count: { select: { results: true } }
       },
       orderBy: { ballotOrder: 'asc' }

@@ -15,6 +15,8 @@ import {
   LogOut,
   PanelLeftClose,
   PanelRightClose,
+  History,
+  Radio,
 } from 'lucide-react';
 import { IconButton, IconButtonDivider } from './IconButton';
 import { useBroadcastStore } from '../../stores/broadcastStore';
@@ -78,6 +80,27 @@ export function BroadcastSidebar({ onExit, canDrillUp }: BroadcastSidebarProps) 
       {/* View Mode Buttons */}
       <div className="flex flex-col gap-2">
         <IconButton
+          icon={Home}
+          label="Home"
+          onClick={() => setViewMode('home')}
+          active={viewMode === 'home'}
+          shortcut="H"
+        />
+        <IconButton
+          icon={Radio}
+          label="Current Election"
+          onClick={() => setViewMode('current-election')}
+          active={viewMode === 'current-election'}
+          shortcut="E"
+        />
+        <IconButton
+          icon={History}
+          label="Past Elections"
+          onClick={() => setViewMode('past-elections')}
+          active={viewMode === 'past-elections'}
+          shortcut="P"
+        />
+        <IconButton
           icon={Map}
           label="Map View"
           onClick={() => setViewMode('map')}
@@ -101,15 +124,15 @@ export function BroadcastSidebar({ onExit, canDrillUp }: BroadcastSidebarProps) 
         <IconButton
           icon={AlertTriangle}
           label="Electoral Issues"
-          onClick={() => setViewMode('issues')}
-          active={viewMode === 'issues'}
+          onClick={() => setViewMode('incidents-home')}
+          active={viewMode === 'incidents-home' || viewMode === 'issues'}
           shortcut="I"
         />
         <IconButton
           icon={Users}
           label="Demographics"
-          onClick={() => setViewMode('demographics')}
-          active={viewMode === 'demographics'}
+          onClick={() => setViewMode('demographics-home')}
+          active={viewMode === 'demographics-home' || viewMode === 'demographics'}
           shortcut="G"
         />
       </div>
@@ -151,7 +174,7 @@ export function BroadcastSidebar({ onExit, canDrillUp }: BroadcastSidebarProps) 
           icon={Calendar}
           label="Select Election"
           onClick={toggleElectionSelector}
-          shortcut="E"
+          shortcut="S"
           size="md"
         />
         <IconButton
@@ -179,7 +202,7 @@ export function BroadcastSidebar({ onExit, canDrillUp }: BroadcastSidebarProps) 
         icon={isLeft ? PanelRightClose : PanelLeftClose}
         label={`Move to ${isLeft ? 'Right' : 'Left'}`}
         onClick={toggleSidebarPosition}
-        shortcut="P"
+        shortcut="\"
         size="sm"
       />
 

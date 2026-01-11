@@ -5,6 +5,11 @@ import {
   SidebarToggle,
   BroadcastHeader,
   BroadcastBreadcrumb,
+  BroadcastHome,
+  PastElectionsBroadcastHome,
+  IncidentsBroadcastHome,
+  DemographicsBroadcastHome,
+  CurrentElectionBroadcastHome,
   BroadcastMap,
   BroadcastComparisonView,
   BroadcastIssuesMap,
@@ -141,11 +146,11 @@ export function BroadcastApp() {
           break;
         case 'i':
         case 'I':
-          setViewMode('issues');
+          setViewMode('incidents-home');
           break;
         case 'g':
         case 'G':
-          setViewMode('demographics');
+          setViewMode('demographics-home');
           break;
         case 'f':
         case 'F':
@@ -171,6 +176,10 @@ export function BroadcastApp() {
           break;
         case 'e':
         case 'E':
+          setViewMode('current-election');
+          break;
+        case 's':
+        case 'S':
           toggleElectionSelector();
           break;
         case '/':
@@ -179,6 +188,10 @@ export function BroadcastApp() {
           break;
         case 'h':
         case 'H':
+          setViewMode('home');
+          break;
+        case 'n':
+        case 'N':
           resetToNational();
           break;
         case 'b':
@@ -201,6 +214,9 @@ export function BroadcastApp() {
           break;
         case 'p':
         case 'P':
+          setViewMode('past-elections');
+          break;
+        case '\\':
           toggleSidebarPosition();
           break;
       }
@@ -261,6 +277,11 @@ export function BroadcastApp() {
           }
         `}
       >
+        {/* Home View */}
+        {viewMode === 'home' && (
+          <BroadcastHome />
+        )}
+
         {/* Map View */}
         {viewMode === 'map' && (
           <div className="w-full h-full relative">
@@ -342,8 +363,28 @@ export function BroadcastApp() {
           </div>
         )}
 
+        {/* Past Elections Home */}
+        {viewMode === 'past-elections' && (
+          <PastElectionsBroadcastHome />
+        )}
+
+        {/* Current Election Home */}
+        {viewMode === 'current-election' && (
+          <CurrentElectionBroadcastHome />
+        )}
+
+        {/* Incidents Home */}
+        {viewMode === 'incidents-home' && (
+          <IncidentsBroadcastHome />
+        )}
+
+        {/* Demographics Home */}
+        {viewMode === 'demographics-home' && (
+          <DemographicsBroadcastHome />
+        )}
+
         {/* No Election Selected */}
-        {!selectedElectionId && viewMode !== 'comparison' && viewMode !== 'issues' && viewMode !== 'demographics' && (
+        {!selectedElectionId && viewMode !== 'home' && viewMode !== 'comparison' && viewMode !== 'issues' && viewMode !== 'demographics' && viewMode !== 'past-elections' && viewMode !== 'current-election' && viewMode !== 'incidents-home' && viewMode !== 'demographics-home' && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 z-10">
             <div className="text-center">
               <p className="text-2xl text-white mb-4">No Election Selected</p>
